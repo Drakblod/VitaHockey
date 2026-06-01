@@ -1,0 +1,119 @@
+[gd_scene load_steps=9 format=2]
+
+[ext_resource path="res://main.gd" type="Script" id=1]
+[ext_resource path="res://Rink.tscn" type="PackedScene" id=3]
+[ext_resource path="res://player.gd" type="Script" id=4]
+[ext_resource path="res://puck.gd" type="Script" id=5]
+[ext_resource path="res://defender.gd" type="Script" id=6]
+[ext_resource path="res://goalie.gd" type="Script" id=7]
+
+[sub_resource type="CircleShape2D" id=1]
+radius = 20.0
+
+[sub_resource type="CircleShape2D" id=2]
+radius = 7.0
+
+[node name="Main" type="Node2D"]
+script = ExtResource( 1 )
+
+[node name="Rink" parent="." instance=ExtResource( 3 )]
+
+[node name="Player" type="KinematicBody2D" parent="."]
+position = Vector2( 0, 100 )
+script = ExtResource( 4 )
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Player"]
+shape = SubResource( 1 )
+
+[node name="Defender" type="KinematicBody2D" parent="."]
+position = Vector2( 0, -100 )
+script = ExtResource( 6 )
+puck_path = NodePath("../Puck")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Defender"]
+shape = SubResource( 1 )
+
+[node name="Goalie" type="KinematicBody2D" parent="."]
+position = Vector2( 720, 0 )
+script = ExtResource( 7 )
+puck_path = NodePath("../Puck")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Goalie"]
+shape = SubResource( 1 )
+
+[node name="Puck" type="KinematicBody2D" parent="."]
+script = ExtResource( 5 )
+player_path = NodePath("../Player")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Puck"]
+shape = SubResource( 2 )
+
+[node name="Camera2D" type="Camera2D" parent="."]
+current = true
+limit_left = -800
+limit_right = 800
+limit_top = -400
+limit_bottom = 400
+smoothing_enabled = true
+smoothing_speed = 5.0
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="DebugUI" type="Control" parent="CanvasLayer"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="PanelContainer" type="PanelContainer" parent="CanvasLayer/DebugUI"]
+margin_left = 16.0
+margin_top = 16.0
+margin_right = 340.0
+margin_bottom = 520.0
+
+[node name="MarginContainer" type="MarginContainer" parent="CanvasLayer/DebugUI/PanelContainer"]
+margin_left = 7.0
+margin_top = 7.0
+margin_right = 317.0
+margin_bottom = 497.0
+custom_constants/margin_right = 8
+custom_constants/margin_top = 8
+custom_constants/margin_left = 8
+custom_constants/margin_bottom = 8
+
+[node name="Label" type="Label" parent="CanvasLayer/DebugUI/PanelContainer/MarginContainer"]
+margin_left = 8.0
+margin_top = 8.0
+margin_right = 282.0
+margin_bottom = 192.0
+text = "FPS: 60
+Player Speed: 0.0 px/s
+Stick Angle: 0.0 deg
+Puck State: FREE
+Puck Speed: 0.0 px/s"
+
+[node name="GameUI" type="Control" parent="CanvasLayer"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="AnnouncementLabel" type="Label" parent="CanvasLayer/GameUI"]
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+margin_left = -400.0
+margin_top = -60.0
+margin_right = 400.0
+margin_bottom = 60.0
+align = 1
+valign = 1
+
+[node name="PeriodTimerLabel" type="Label" parent="CanvasLayer/GameUI"]
+anchor_left = 0.5
+anchor_right = 0.5
+margin_left = -200.0
+margin_top = 20.0
+margin_right = 200.0
+margin_bottom = 50.0
+align = 1
+valign = 1
