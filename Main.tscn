@@ -28,7 +28,6 @@ shape = SubResource( 1 )
 [node name="Teammate" type="KinematicBody2D" parent="."]
 position = Vector2( 250, 100 )
 script = ExtResource( 4 )
-is_controlled = false
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Teammate"]
 shape = SubResource( 1 )
@@ -59,11 +58,10 @@ shape = SubResource( 2 )
 [node name="Camera2D" type="Camera2D" parent="."]
 current = true
 limit_left = -800
-limit_right = 800
 limit_top = -400
+limit_right = 800
 limit_bottom = 400
 smoothing_enabled = true
-smoothing_speed = 5.0
 
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 
@@ -90,9 +88,9 @@ custom_constants/margin_bottom = 8
 
 [node name="Label" type="Label" parent="CanvasLayer/DebugUI/PanelContainer/MarginContainer"]
 margin_left = 8.0
-margin_top = 8.0
-margin_right = 282.0
-margin_bottom = 192.0
+margin_top = 204.0
+margin_right = 302.0
+margin_bottom = 286.0
 text = "FPS: 60
 Player Speed: 0.0 px/s
 Stick Angle: 0.0 deg

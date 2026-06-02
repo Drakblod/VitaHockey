@@ -50,6 +50,8 @@ func set_active_player(new_player: KinematicBody2D):
 	var players = get_tree().get_nodes_in_group("blue_team")
 	for p in players:
 		p.is_controlled = (p == player)
+		if not p.is_controlled:
+			p.velocity = Vector2.ZERO
 
 func get_pass_target() -> KinematicBody2D:
 	if not puck or puck.state != puck.State.POSSESSED or not player:
@@ -57,7 +59,7 @@ func get_pass_target() -> KinematicBody2D:
 		
 	var stick_dir = Vector2.RIGHT.rotated(player.stick_angle)
 	var best_target = null
-	var best_dot = 0.8 # dot product threshold (approx 36 degrees)
+	var best_dot = 0.55 # dot product threshold (approx 56 degrees either side)
 	
 	var players = get_tree().get_nodes_in_group("blue_team")
 	for p in players:
@@ -266,6 +268,13 @@ func _process(delta):
 		var pass_target_node = get_pass_target()
 		var pass_target_str = pass_target_node.name if pass_target_node else "NONE"
 		
+		# Count controlled players
+		var controlled_count = 0
+		var blue_players = get_tree().get_nodes_in_group("blue_team")
+		for bp in blue_players:
+			if bp.is_controlled:
+				controlled_count += 1
+		
 		debug_label.text = (
 			"%s\n" +
 			"FPS: %d\n" +
@@ -288,8 +297,9 @@ func _process(delta):
 			"  Raw Stick Angle: %.1f°\n" +
 			"  Smoothed Stick Angle: %.1f°\n" +
 			"  Stick Angle Delta: %.1f°/s\n" +
-			"  Controlled Player: %s\n" +
+			"  Active Player: %s\n" +
 			"  Pass Target: %s\n" +
+			"  Number of Controlled Players: %d\n" +
 			"  Opponent AI: %s\n" +
 			"  Shot Charge: %s\n\n" +
 			"Controls:\n" +
@@ -307,7 +317,7 @@ func _process(delta):
 			stick_target_to_puck_dist, desired_target_dist, smoothed_target_dist,
 			puck_ctrl_dist, visual_stk_len,
 			raw_stick_angle_deg, smoothed_stick_angle_deg, stick_angle_delta_val,
-			ctrl_player_str, pass_target_str, opponent_ai_str, charge_str
+			ctrl_player_str, pass_target_str, controlled_count, opponent_ai_str, charge_str
 		]
 
 func _on_rink_goal_scored(scoring_team):

@@ -113,6 +113,13 @@ func _physics_process(delta):
 	update()
 
 func _draw():
+	# Draw glowing target ring if this teammate is the active pass target
+	if not is_controlled:
+		var main = get_parent()
+		if main and main.has_method("get_pass_target"):
+			if main.get_pass_target() == self:
+				draw_arc(Vector2.ZERO, 28.0, 0, TAU, 24, Color("#f43f5e"), 3.0, true) # Rose indicator ring
+				
 	# Draw player body
 	draw_circle(Vector2.ZERO, 20.0, Color("#3b82f6")) # Blue team player
 	

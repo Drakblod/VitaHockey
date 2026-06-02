@@ -353,9 +353,11 @@ func _pass_puck():
 	_release_puck("PASS")
 	shoot_cooldown = 0.25
 	
-	var pass_dir = Vector2.RIGHT.rotated(player.stick_angle)
+	var stick_dir = Vector2.RIGHT.rotated(player.stick_angle)
+	var pass_dir = stick_dir
 	if last_pass_target:
-		pass_dir = (last_pass_target.global_position - player.global_position).normalized()
+		var dir_to_teammate = (last_pass_target.global_position - player.global_position).normalized()
+		pass_dir = stick_dir.lerp(dir_to_teammate, 0.85).normalized()
 		
 	velocity = player.velocity + pass_dir * pass_force
 	shot_charge = 0.0
