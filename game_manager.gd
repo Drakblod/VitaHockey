@@ -128,20 +128,21 @@ func _setup_inputs():
 		"shoot": [
 			{"type": "key", "val": KEY_SPACE},
 			{"type": "mouse", "val": BUTTON_LEFT},
-			{"type": "joy_button", "val": JOY_BUTTON_0}
+			{"type": "joy_button", "val": JOY_BUTTON_1} # Circle on Vita / B on Xbox
 		],
 		"pass": [
 			{"type": "key", "val": KEY_C},
-			{"type": "joy_button", "val": JOY_BUTTON_2}, # Square / X
+			{"type": "joy_button", "val": JOY_BUTTON_0}, # Cross on Vita / A on Xbox
+			{"type": "joy_button", "val": JOY_BUTTON_3}, # Square / X
 			{"type": "joy_button", "val": JOY_BUTTON_4}  # L1
 		],
 		"sprint": [
 			{"type": "key", "val": KEY_SHIFT},
-			{"type": "joy_button", "val": JOY_BUTTON_5}  # R1 (re-mapped to sprint)
+			{"type": "joy_button", "val": JOY_BUTTON_5}  # R1 on Vita
 		],
 		"reset": [
 			{"type": "key", "val": KEY_R},
-			{"type": "joy_button", "val": JOY_BUTTON_11} # Start Button
+			{"type": "joy_button", "val": JOY_BUTTON_11} # Start Button on Vita
 		],
 		"toggle_opponent": [
 			{"type": "key", "val": KEY_O},

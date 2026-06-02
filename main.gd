@@ -1,5 +1,17 @@
 extends Node2D
 
+export var pass_success_green_threshold := 80.0
+export var pass_success_max_distance := 600.0
+export var pass_success_optimal_distance := 150.0
+export var pass_success_aim_weight := 40.0
+export var pass_success_dist_weight := 30.0
+export var pass_success_move_weight := 10.0
+export var pass_success_def_weight := 20.0
+export var pass_success_def_guard_min := 60.0
+export var pass_success_def_guard_max := 180.0
+export var pass_success_def_lane_min := 40.0
+export var pass_success_def_lane_max := 140.0
+
 enum GameState {
 	PLAY,
 	GOAL_CELEBRATION,
@@ -35,6 +47,12 @@ func _ready():
 	period_timer_label.rect_scale = Vector2(1.5, 1.5)
 	period_timer_label.rect_pivot_offset = Vector2(200, 15)
 
+	var platform = OS.get_name()
+	if platform == "PSP2" or platform == "Vita":
+		debug_ui_visible = false
+		if debug_panel:
+			debug_panel.visible = false
+
 	var rink = get_node_or_null("Rink")
 	if rink:
 		rink.connect("goal_scored", self, "_on_rink_goal_scored")
@@ -59,13 +77,18 @@ func get_pass_target() -> KinematicBody2D:
 		
 	var stick_dir = Vector2.RIGHT.rotated(player.stick_angle)
 	var best_target = null
-	var best_dot = 0.55 # dot product threshold (approx 56 degrees either side)
 	
 	var players = get_tree().get_nodes_in_group("blue_team")
+	var teammates = []
 	for p in players:
-		if p == player:
-			continue
+		if p != player:
+			teammates.append(p)
 			
+	var best_dot = 0.25 # pass target cone threshold relaxed
+	if teammates.size() == 1:
+		best_dot = -1.0 # If only one teammate exists, allow pass to them even if aim is imperfect
+		
+	for p in teammates:
 		var to_teammate = p.global_position - player.global_position
 		var dist = to_teammate.length()
 		if dist > 0.0:
@@ -76,6 +99,90 @@ func get_pass_target() -> KinematicBody2D:
 				best_target = p
 				
 	return best_target
+
+func get_pass_success_chance(teammate: KinematicBody2D) -> float:
+	if not player or not teammate:
+		return 0.0
+		
+	# 1. Stick Aim Alignment (40% weight by default)
+	var stick_dir = Vector2.RIGHT.rotated(player.stick_angle)
+	var to_teammate = teammate.global_position - player.global_position
+	var dist = to_teammate.length()
+	if dist == 0.0:
+		return 0.0
+		
+	var dir = to_teammate / dist
+	var dot = stick_dir.dot(dir)
+	
+	var players = get_tree().get_nodes_in_group("blue_team")
+	var teammates_count = 0
+	for p in players:
+		if p != player:
+			teammates_count += 1
+			
+	var thresh = 0.25
+	if teammates_count == 1:
+		thresh = -1.0
+		
+	var alignment_factor = 0.0
+	if dot >= thresh:
+		if thresh == -1.0:
+			alignment_factor = (dot + 1.0) / 2.0
+		else:
+			alignment_factor = (dot - thresh) / (1.0 - thresh)
+	
+	var alignment_score = alignment_factor * pass_success_aim_weight
+	
+	# 2. Distance (30% weight by default)
+	var dist_range = pass_success_max_distance - pass_success_optimal_distance
+	var distance_factor = 0.0
+	if dist <= pass_success_optimal_distance:
+		distance_factor = 1.0
+	elif dist < pass_success_max_distance and dist_range > 0.0:
+		distance_factor = 1.0 - (dist - pass_success_optimal_distance) / dist_range
+	var distance_score = distance_factor * pass_success_dist_weight
+	
+	# 3. Teammate Movement (10% weight by default)
+	var teammate_speed = teammate.velocity.length()
+	var movement_factor = clamp(1.0 - (teammate_speed / 400.0) * 0.3, 0.7, 1.0)
+	var movement_score = movement_factor * pass_success_move_weight
+	
+	# 4. Defender Proximity (20% weight by default)
+	var defender_score = pass_success_def_weight
+	if not opponent_disabled and defender and defender.is_inside_tree():
+		# Guarding: Defender proximity to teammate
+		var dist_def_to_tm = defender.global_position.distance_to(teammate.global_position)
+		var guard_range = pass_success_def_guard_max - pass_success_def_guard_min
+		var guard_factor = 0.0
+		if dist_def_to_tm >= pass_success_def_guard_max:
+			guard_factor = 1.0
+		elif dist_def_to_tm > pass_success_def_guard_min and guard_range > 0.0:
+			guard_factor = (dist_def_to_tm - pass_success_def_guard_min) / guard_range
+			
+		# Interception: Defender proximity to pass lane
+		var dist_to_lane = _dist_to_segment(defender.global_position, player.global_position, teammate.global_position)
+		var lane_range = pass_success_def_lane_max - pass_success_def_lane_min
+		var lane_factor = 0.0
+		if dist_to_lane >= pass_success_def_lane_max:
+			lane_factor = 1.0
+		elif dist_to_lane > pass_success_def_lane_min and lane_range > 0.0:
+			lane_factor = (dist_to_lane - pass_success_def_lane_min) / lane_range
+			
+		var defender_factor = min(guard_factor, lane_factor)
+		defender_score = defender_factor * pass_success_def_weight
+		
+	var chance = alignment_score + distance_score + movement_score + defender_score
+	return clamp(chance, 0.0, 100.0)
+
+func _dist_to_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab = b - a
+	var ap = p - a
+	var ab_len_sq = ab.length_squared()
+	if ab_len_sq == 0.0:
+		return p.distance_to(a)
+	var t = clamp(ap.dot(ab) / ab_len_sq, 0.0, 1.0)
+	var projection = a + t * ab
+	return p.distance_to(projection)
 
 func set_entities_frozen(frozen: bool):
 	var players = get_tree().get_nodes_in_group("blue_team")
@@ -227,7 +334,11 @@ func _process(delta):
 		var fps = Engine.get_frames_per_second()
 		var player_speed = player.velocity.length()
 		var stick_angle_deg = rad2deg(player.stick_angle)
-		var puck_state_str = "POSSESSED" if puck.state == puck.State.POSSESSED else "FREE"
+		var puck_state_str = "FREE"
+		if puck.state == puck.State.POSSESSED:
+			puck_state_str = "POSSESSED"
+		elif puck.state == puck.State.TARGETED_PASS:
+			puck_state_str = "TARGETED_PASS"
 		var puck_speed = puck.velocity.length()
 		
 		var time_possessed = puck.time_possessed if puck.state == puck.State.POSSESSED else 0.0
@@ -236,6 +347,12 @@ func _process(delta):
 		var loss_reason = puck.possession_loss_reason
 		var turn_loss_status = "ENABLED" if puck.enable_sharp_turn_loss else "DISABLED"
 		var active_deke = puck.current_deke
+		
+		var pass_state_str = "ACTIVE" if puck.state == puck.State.TARGETED_PASS else "INACTIVE"
+		var dist_to_recv_str = "N/A"
+		if puck.state == puck.State.TARGETED_PASS and puck.last_pass_target:
+			dist_to_recv_str = "%.1f px" % puck.global_position.distance_to(puck.last_pass_target.global_position)
+		var auto_cap_rad_str = "%.1f px" % puck.reception_radius
 		
 		var stick_target_to_puck_dist = puck.possessed_target_distance if puck.state == puck.State.POSSESSED else 0.0
 		var desired_target_dist = puck.desired_target_distance if puck.state == puck.State.POSSESSED else 0.0
@@ -267,6 +384,11 @@ func _process(delta):
 		var ctrl_player_str = player.name if player else "NONE"
 		var pass_target_node = get_pass_target()
 		var pass_target_str = pass_target_node.name if pass_target_node else "NONE"
+		if pass_target_node:
+			var chance = get_pass_success_chance(pass_target_node)
+			pass_target_str += " (Chance: %.1f%%)" % chance
+		else:
+			pass_target_str += " (Chance: N/A)"
 		
 		# Count controlled players
 		var controlled_count = 0
@@ -289,6 +411,9 @@ func _process(delta):
 			"  Turn Loss Logic: %s\n" +
 			"  Current Deke: %s\n" +
 			"  Last Loss Reason: %s\n" +
+			"  Targeted Pass: %s\n" +
+			"  Distance to Receiver: %s\n" +
+			"  Auto Capture Radius: %s\n" +
 			"  Stick Target to Puck Dist: %.1f px\n" +
 			"  Desired Target Dist: %.1f px\n" +
 			"  Smoothed Target Dist: %.1f px\n" +
@@ -314,6 +439,7 @@ func _process(delta):
 		) % [
 			score_str, fps, player_speed, stick_angle_deg, puck_state_str, puck_speed,
 			time_possessed, stick_ang_vel, turn_sharpness, turn_loss_status, active_deke, loss_reason,
+			pass_state_str, dist_to_recv_str, auto_cap_rad_str,
 			stick_target_to_puck_dist, desired_target_dist, smoothed_target_dist,
 			puck_ctrl_dist, visual_stk_len,
 			raw_stick_angle_deg, smoothed_stick_angle_deg, stick_angle_delta_val,

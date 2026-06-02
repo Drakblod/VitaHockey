@@ -2,7 +2,8 @@ extends KinematicBody2D
 
 enum State {
 	FREE,
-	POSSESSED
+	POSSESSED,
+	TARGETED_PASS
 }
 
 export(NodePath) var player_path
@@ -39,7 +40,10 @@ export var target_max_speed := 1200.0
 export var puck_control_distance := 45.0
 export var min_puck_control_distance := 38.0
 export var max_puck_control_distance := 55.0
-export var reception_radius := 65.0
+export var reception_radius := 150.0
+export var targeted_pass_speed := 650.0
+export var targeted_pass_assist_strength := 1.0
+export var enable_pass_interceptions := false
 
 var state = State.FREE
 var velocity := Vector2.ZERO
@@ -72,6 +76,8 @@ var _last_stick_angle := 0.0
 
 var last_pass_target: KinematicBody2D = null
 var pass_active := false
+var targeted_pass_timer := 0.0
+var last_dist_to_receiver := 9999.0
 var time_free := 0.0
 
 onready var player = get_node_or_null(player_path) as KinematicBody2D
@@ -85,6 +91,8 @@ func _physics_process(delta):
 			_process_free(delta)
 		State.POSSESSED:
 			_process_possessed(delta)
+		State.TARGETED_PASS:
+			_process_targeted_pass(delta)
 			
 	update()
 
@@ -334,6 +342,8 @@ func _capture_puck(p: KinematicBody2D):
 	pass_active = false
 	last_pass_target = null
 	
+	_clear_blue_collision_exceptions()
+	
 	var main = get_parent()
 	if main and main.has_method("set_active_player"):
 		main.set_active_player(p)
@@ -342,6 +352,11 @@ func _capture_puck(p: KinematicBody2D):
 	if col_shape:
 		col_shape.set_deferred("disabled", true)
 
+func _clear_blue_collision_exceptions():
+	var blue_players = get_tree().get_nodes_in_group("blue_team")
+	for bp in blue_players:
+		remove_collision_exception_with(bp)
+
 func _release_puck(reason: String):
 	state = State.FREE
 	possession_loss_reason = reason
@@ -349,13 +364,31 @@ func _release_puck(reason: String):
 	deke_offset = Vector2.ZERO
 	time_free = 0.0
 	
+	_clear_blue_collision_exceptions()
+	
 	if reason == "PASS":
 		var main = get_parent()
 		if main and main.has_method("get_pass_target"):
 			last_pass_target = main.get_pass_target()
 		else:
 			last_pass_target = null
+			
+		# Enforce single teammate auto-target safeguard
+		if not last_pass_target:
+			var players = get_tree().get_nodes_in_group("blue_team")
+			var teammates = []
+			for p in players:
+				if p != player:
+					teammates.append(p)
+			if teammates.size() == 1:
+				last_pass_target = teammates[0]
+				
 		pass_active = true
+		
+		if last_pass_target:
+			var blue_players = get_tree().get_nodes_in_group("blue_team")
+			for bp in blue_players:
+				add_collision_exception_with(bp)
 	else:
 		last_pass_target = null
 		pass_active = false
@@ -373,6 +406,7 @@ func force_release(reason: String):
 	else:
 		last_pass_target = null
 		pass_active = false
+		_clear_blue_collision_exceptions()
 	shot_charge = 0.0
 
 func _shoot(charge_amount: float):
@@ -383,17 +417,103 @@ func _shoot(charge_amount: float):
 	velocity = player.velocity + shoot_dir * force
 	shot_charge = 0.0
 
+func _process_targeted_pass(delta):
+	targeted_pass_timer += delta
+	time_free += delta
+	
+	var dist_to_body = 9999.0
+	if last_pass_target:
+		dist_to_body = global_position.distance_to(last_pass_target.global_position)
+		
+	if not last_pass_target or targeted_pass_timer > 1.2:
+		_clear_blue_collision_exceptions()
+		state = State.FREE
+		last_pass_target = null
+		pass_active = false
+		return
+		
+	# 1. Move directly towards receiver's global_position (highly magnetic)
+	var receive_point = last_pass_target.global_position
+	var target_dir = (receive_point - global_position).normalized()
+	
+	var is_decreasing = dist_to_body < last_dist_to_receiver
+	last_dist_to_receiver = dist_to_body
+	
+	# Magnetic capture: pull at 1.1x speed if under 180px and decreasing
+	var current_speed = targeted_pass_speed
+	if dist_to_body < 180.0 and is_decreasing:
+		current_speed = targeted_pass_speed * 1.1
+		
+	if targeted_pass_assist_strength < 1.0:
+		var current_dir = velocity.normalized()
+		if current_dir.length() == 0.0:
+			current_dir = target_dir
+		var new_dir = current_dir.linear_interpolate(target_dir, 6.0 * delta * targeted_pass_assist_strength).normalized()
+		velocity = new_dir * current_speed
+	else:
+		velocity = target_dir * current_speed
+	
+	# 2. Physics Movement & Collision (exception with blue players is active, so only collides with rink/boards/goalie/opponents)
+	var collision = move_and_collide(velocity * delta)
+	if collision:
+		velocity = velocity.bounce(collision.normal) * bounce_coeff
+		_clear_blue_collision_exceptions()
+		state = State.FREE
+		last_pass_target = null
+		pass_active = false
+		return
+		
+	# 3. Defender Proximity & Interception Check (if enabled)
+	if enable_pass_interceptions:
+		var main = get_parent()
+		var opponent_disabled = main.opponent_disabled if (main and "opponent_disabled" in main) else false
+		var defender_node = get_node_or_null("../Defender")
+		if not opponent_disabled and defender_node and defender_node.is_inside_tree():
+			var dist_to_def = global_position.distance_to(defender_node.global_position)
+			var dist_to_def_stick = global_position.distance_to(defender_node.global_position + defender_node.facing_dir * 38.0)
+			if dist_to_def < 35.0 or dist_to_def_stick < 25.0:
+				# Intercepted and deflected by defender
+				_clear_blue_collision_exceptions()
+				state = State.FREE
+				last_pass_target = null
+				pass_active = false
+				var push_dir = (defender_node.facing_dir + Vector2(rand_range(-0.2, 0.2), rand_range(-0.2, 0.2))).normalized()
+				velocity = push_dir * 450.0
+				shoot_cooldown = 0.25
+				return
+			
+	# 4. Auto-capture only by the intended receiver (using body-centered radius check)
+	if shoot_cooldown <= 0.0:
+		if dist_to_body < reception_radius:
+			_capture_puck(last_pass_target)
+
 func _pass_puck():
 	_release_puck("PASS")
 	shoot_cooldown = 0.25
 	
 	var stick_dir = Vector2.RIGHT.rotated(player.stick_angle)
 	var pass_dir = stick_dir
+	
+	# Enforce auto-target safeguard if only one teammate exists
+	if not last_pass_target:
+		var players = get_tree().get_nodes_in_group("blue_team")
+		var teammates = []
+		for p in players:
+			if p != player:
+				teammates.append(p)
+		if teammates.size() == 1:
+			last_pass_target = teammates[0]
+			
 	if last_pass_target:
+		state = State.TARGETED_PASS
+		targeted_pass_timer = 0.0
+		last_dist_to_receiver = 9999.0
 		var dir_to_teammate = (last_pass_target.global_position - player.global_position).normalized()
-		pass_dir = stick_dir.lerp(dir_to_teammate, 0.85).normalized()
+		velocity = dir_to_teammate * targeted_pass_speed
+	else:
+		state = State.FREE
+		velocity = player.velocity + pass_dir * pass_force
 		
-	velocity = player.velocity + pass_dir * pass_force
 	shot_charge = 0.0
 
 func _short_angle_diff(from: float, to: float) -> float:
@@ -405,6 +525,16 @@ func _short_angle_diff(from: float, to: float) -> float:
 	return diff
 
 func _draw():
+	# Show pass line in debug mode from passer to target
+	if state == State.TARGETED_PASS and last_pass_target and player:
+		var main = get_parent()
+		var is_debug = main.debug_ui_visible if ("debug_ui_visible" in main) else false
+		if is_debug:
+			var local_passer = player.global_position - global_position
+			var receive_point = last_pass_target.global_position
+			var local_receiver = receive_point - global_position
+			draw_line(local_passer, local_receiver, Color(0.14, 0.78, 0.36, 0.45), 2.5)
+
 	draw_circle(Vector2(2, 2), 7.0, Color(0, 0, 0, 0.25))
 	draw_circle(Vector2.ZERO, 7.0, Color("#0f172a"))
 	draw_circle(Vector2.ZERO, 5.0, Color("#1e293b"))

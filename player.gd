@@ -156,18 +156,47 @@ func _physics_process(delta):
 	update()
 
 func _draw():
-	# Draw glowing target ring if this teammate is the active pass target
+	# Draw pass indicator ring and debug text if active player has possession
 	if not is_controlled:
 		var main = get_parent()
-		if main and main.has_method("get_pass_target"):
-			if main.get_pass_target() == self:
-				draw_arc(Vector2.ZERO, 28.0, 0, TAU, 24, Color("#f43f5e"), 3.0, true) # Rose indicator ring
-				
-				# Dotted/thin outline and transparent fill of the reception zone in debug mode
-				var is_debug = main.debug_ui_visible if ("debug_ui_visible" in main) else false
-				if is_debug:
-					var puck_node = get_node_or_null("../Puck")
-					var rec_rad = puck_node.reception_radius if (puck_node and "reception_radius" in puck_node) else 65.0
+		var puck_node = get_node_or_null("../Puck")
+		var possessing = puck_node and puck_node.state == puck_node.State.POSSESSED and puck_node.player and puck_node.player.is_controlled
+		
+		if possessing:
+			var current_target = main.get_pass_target() if main.has_method("get_pass_target") else null
+			var chance = main.get_pass_success_chance(self) if main.has_method("get_pass_success_chance") else 0.0
+			var green_thresh = main.pass_success_green_threshold if ("pass_success_green_threshold" in main) else 80.0
+			
+			var ring_color = Color("#ef4444") # Red (outside cone / no valid target)
+			
+			var stick_dir = Vector2.RIGHT.rotated(puck_node.player.stick_angle)
+			var to_teammate = global_position - puck_node.player.global_position
+			var dot = stick_dir.dot(to_teammate.normalized()) if to_teammate.length() > 0.0 else 0.0
+			
+			if dot >= 0.55:
+				if current_target == self and chance > green_thresh:
+					ring_color = Color("#22c55e") # Green (success > green_thresh)
+				else:
+					ring_color = Color("#eab308") # Yellow (in cone)
+					
+			# Draw indicator ring
+			draw_arc(Vector2.ZERO, 28.0, 0, TAU, 24, ring_color, 3.0, true)
+			
+			# Draw pass chance text above teammate in debug mode
+			var is_debug = main.debug_ui_visible if ("debug_ui_visible" in main) else false
+			if is_debug:
+				var font = main.debug_label.get_font("font") if ("debug_label" in main and main.debug_label) else null
+				if font:
+					var text = "Pass: %d%%" % int(round(chance))
+					if dot < 0.55:
+						text = "Pass: 0% (Aim)"
+					var text_size = font.get_string_size(text)
+					var text_pos = Vector2(-text_size.x / 2.0, -35.0)
+					draw_string(font, text_pos, text, ring_color)
+					
+				# Draw reception zone outline/fill if this teammate is the active pass target
+				if current_target == self:
+					var rec_rad = puck_node.reception_radius if ("reception_radius" in puck_node) else 65.0
 					draw_circle(Vector2.ZERO, rec_rad, Color(0.96, 0.25, 0.37, 0.1))
 					draw_arc(Vector2.ZERO, rec_rad, 0, TAU, 32, Color(0.96, 0.25, 0.37, 0.3), 1.0, true)
 				
