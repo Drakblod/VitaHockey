@@ -69,6 +69,9 @@ var smoothed_target_distance := 0.0
 
 var _last_stick_angle := 0.0
 
+var last_pass_target: KinematicBody2D = null
+var time_free := 0.0
+
 onready var player = get_node_or_null(player_path) as KinematicBody2D
 
 func _physics_process(delta):
@@ -84,6 +87,7 @@ func _physics_process(delta):
 	update()
 
 func _process_free(delta):
+	time_free += delta
 	velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 	
 	var collision = move_and_collide(velocity * delta)
@@ -91,11 +95,21 @@ func _process_free(delta):
 		velocity = velocity.bounce(collision.normal) * bounce_coeff
 		move_and_collide(velocity.slide(collision.normal) * delta)
 		
-	if shoot_cooldown <= 0.0 and player:
-		# Capture check relative to visual stick target
-		var dist_to_stick = global_position.distance_to(player.stick_target_pos)
-		if dist_to_stick < capture_radius:
-			_capture_puck()
+	if shoot_cooldown <= 0.0:
+		var players = get_tree().get_nodes_in_group("blue_team")
+		for p in players:
+			var dist_to_stick = global_position.distance_to(p.stick_target_pos)
+			var can_capture = false
+			if p.is_controlled:
+				can_capture = (dist_to_stick < capture_radius)
+			else:
+				var is_last_pass_target = (p == last_pass_target)
+				var is_very_close = (dist_to_stick < capture_radius * 0.7)
+				can_capture = (is_last_pass_target and dist_to_stick < capture_radius) or (time_free >= 0.25 and is_very_close)
+				
+			if can_capture:
+				_capture_puck(p)
+				break
 
 func _process_possessed(delta):
 	if not player:
@@ -277,7 +291,8 @@ func _process_possessed(delta):
 
 # --- Centralized Capture / Release Helpers ---
 
-func _capture_puck():
+func _capture_puck(p: KinematicBody2D):
+	player = p
 	state = State.POSSESSED
 	time_possessed = 0.0
 	_last_stick_angle = player.stick_angle
@@ -290,6 +305,10 @@ func _capture_puck():
 	_last_desired_target = player.stick_target_pos
 	velocity = Vector2.ZERO
 	
+	var main = get_parent()
+	if main and main.has_method("set_active_player"):
+		main.set_active_player(p)
+		
 	var col_shape = get_node_or_null("CollisionShape2D")
 	if col_shape:
 		col_shape.set_deferred("disabled", true)
@@ -299,7 +318,17 @@ func _release_puck(reason: String):
 	possession_loss_reason = reason
 	current_deke = "NONE"
 	deke_offset = Vector2.ZERO
+	time_free = 0.0
 	
+	if reason == "PASS":
+		var main = get_parent()
+		if main and main.has_method("get_pass_target"):
+			last_pass_target = main.get_pass_target()
+		else:
+			last_pass_target = null
+	else:
+		last_pass_target = null
+		
 	if player:
 		player.visual_stick_length = 55.0
 		
@@ -323,7 +352,11 @@ func _shoot(charge_amount: float):
 func _pass_puck():
 	_release_puck("PASS")
 	shoot_cooldown = 0.25
+	
 	var pass_dir = Vector2.RIGHT.rotated(player.stick_angle)
+	if last_pass_target:
+		pass_dir = (last_pass_target.global_position - player.global_position).normalized()
+		
 	velocity = player.velocity + pass_dir * pass_force
 	shot_charge = 0.0
 

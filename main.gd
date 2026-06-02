@@ -35,17 +35,51 @@ func _ready():
 	period_timer_label.rect_scale = Vector2(1.5, 1.5)
 	period_timer_label.rect_pivot_offset = Vector2(200, 15)
 
-	if player:
-		camera.global_position = player.global_position
-		
 	var rink = get_node_or_null("Rink")
 	if rink:
 		rink.connect("goal_scored", self, "_on_rink_goal_scored")
 		
 	setup_faceoff(true)
 
+func set_active_player(new_player: KinematicBody2D):
+	if not new_player:
+		return
+	player = new_player
+	
+	# Update control states for all blue team players
+	var players = get_tree().get_nodes_in_group("blue_team")
+	for p in players:
+		p.is_controlled = (p == player)
+
+func get_pass_target() -> KinematicBody2D:
+	if not puck or puck.state != puck.State.POSSESSED or not player:
+		return null
+		
+	var stick_dir = Vector2.RIGHT.rotated(player.stick_angle)
+	var best_target = null
+	var best_dot = 0.8 # dot product threshold (approx 36 degrees)
+	
+	var players = get_tree().get_nodes_in_group("blue_team")
+	for p in players:
+		if p == player:
+			continue
+			
+		var to_teammate = p.global_position - player.global_position
+		var dist = to_teammate.length()
+		if dist > 0.0:
+			var dir = to_teammate / dist
+			var dot = stick_dir.dot(dir)
+			if dot > best_dot:
+				best_dot = dot
+				best_target = p
+				
+	return best_target
+
 func set_entities_frozen(frozen: bool):
-	player.set_physics_process(not frozen)
+	var players = get_tree().get_nodes_in_group("blue_team")
+	for p in players:
+		p.set_physics_process(not frozen)
+		
 	if defender and not opponent_disabled:
 		defender.set_physics_process(not frozen)
 	if goalie:
@@ -62,34 +96,46 @@ func setup_faceoff(full_reset_timer: bool):
 	goal_text = ""
 	announcement_label.text = ""
 	
+	# Reset active player control to default $Player
+	set_active_player($Player)
+	
 	# Freeze gameplay nodes physics processing
 	set_entities_frozen(true)
 	
-	# Zero out movement velocities
-	player.velocity = Vector2.ZERO
-	player.facing_dir = Vector2.UP
+	# Zero out velocities and reset positions for all blue team players
+	var players = get_tree().get_nodes_in_group("blue_team")
+	for p in players:
+		p.velocity = Vector2.ZERO
+		p.facing_dir = Vector2.UP if p == $Player else Vector2.RIGHT
+		
+	# Teleport player nodes
+	$Player.global_position = Vector2(0, 100)
+	var teammate = get_node_or_null("Teammate")
+	if teammate:
+		teammate.global_position = Vector2(250, 100)
+		
 	if defender:
 		defender.velocity = Vector2.ZERO
 		defender.facing_dir = Vector2.DOWN
+		defender.global_position = Vector2(0, -100)
+		
 	if goalie:
 		goalie.velocity = Vector2.ZERO
-	
+		goalie.global_position = Vector2(720, 0)
+		
 	# Release puck to reset its collision shape and variables
 	puck.force_release("NONE")
 	puck.velocity = Vector2.ZERO
 	puck.shot_charge = 0.0
 	puck.shoot_cooldown = 0.5
-	
-	# Teleport nodes to face-off positions
-	player.global_position = Vector2(0, 100)
-	if defender:
-		defender.global_position = Vector2(0, -100)
-	if goalie:
-		goalie.global_position = Vector2(720, 0)
 	puck.global_position = Vector2.ZERO
+	
+	# Snap camera instantly and reset smoothing
+	camera.global_position = player.global_position
+	camera.reset_smoothing()
 
 func _process(delta):
-	# Camera follows player
+	# Camera smoothly tracks player
 	if player and game_state != GameState.FACEOFF and game_state != GameState.PERIOD_OVER:
 		camera.global_position = player.global_position
 
@@ -216,6 +262,10 @@ func _process(delta):
 		var opponent_ai_str = "DISABLED" if opponent_disabled else "ACTIVE"
 		var score_str = "SCORE: Player %d | Opponent %d" % [player_score, opponent_score]
 		
+		var ctrl_player_str = player.name if player else "NONE"
+		var pass_target_node = get_pass_target()
+		var pass_target_str = pass_target_node.name if pass_target_node else "NONE"
+		
 		debug_label.text = (
 			"%s\n" +
 			"FPS: %d\n" +
@@ -238,6 +288,8 @@ func _process(delta):
 			"  Raw Stick Angle: %.1f°\n" +
 			"  Smoothed Stick Angle: %.1f°\n" +
 			"  Stick Angle Delta: %.1f°/s\n" +
+			"  Controlled Player: %s\n" +
+			"  Pass Target: %s\n" +
 			"  Opponent AI: %s\n" +
 			"  Shot Charge: %s\n\n" +
 			"Controls:\n" +
@@ -254,7 +306,8 @@ func _process(delta):
 			time_possessed, stick_ang_vel, turn_sharpness, turn_loss_status, active_deke, loss_reason,
 			stick_target_to_puck_dist, desired_target_dist, smoothed_target_dist,
 			puck_ctrl_dist, visual_stk_len,
-			raw_stick_angle_deg, smoothed_stick_angle_deg, stick_angle_delta_val, opponent_ai_str, charge_str
+			raw_stick_angle_deg, smoothed_stick_angle_deg, stick_angle_delta_val,
+			ctrl_player_str, pass_target_str, opponent_ai_str, charge_str
 		]
 
 func _on_rink_goal_scored(scoring_team):

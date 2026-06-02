@@ -6,6 +6,7 @@ export var friction := 500.0
 
 # MVP 6: Visual stick separation
 export var visual_stick_length := 55.0
+export var is_controlled := true
 
 # MVP 2: Possession loss variables (Tuned)
 export var max_control_speed := 420.0
@@ -30,6 +31,7 @@ var stick_angle_delta := 0.0
 
 func _ready():
 	stick_angle = facing_dir.angle()
+	add_to_group("blue_team")
 
 func apply_sprint_burst(amount: float):
 	velocity += facing_dir * amount
@@ -41,33 +43,46 @@ func _physics_process(delta):
 	speed_scale = move_toward(speed_scale, 1.0, 0.7 * delta)
 
 	# 1. Skating Movement
-	var move_dir = GameManager.get_skate_input()
-	
-	var current_max_speed = max_speed
-	if GameManager.is_sprint_held():
-		current_max_speed = max_speed * 1.25
+	if is_controlled:
+		var move_dir = GameManager.get_skate_input()
 		
-	var speed = velocity.length()
-	if move_dir.length() > 0.0:
-		if speed > 10.0:
-			var dot = velocity.normalized().dot(move_dir)
-			turn_sharpness = 1.0 - dot
+		var current_max_speed = max_speed
+		if GameManager.is_sprint_held():
+			current_max_speed = max_speed * 1.25
+			
+		var speed = velocity.length()
+		if move_dir.length() > 0.0:
+			if speed > 10.0:
+				var dot = velocity.normalized().dot(move_dir)
+				turn_sharpness = 1.0 - dot
+			else:
+				turn_sharpness = 0.0
+				
+			velocity += move_dir * acceleration * delta
+			velocity = velocity.clamped(current_max_speed * speed_scale)
+			facing_dir = move_dir
 		else:
 			turn_sharpness = 0.0
+			velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 			
-		velocity += move_dir * acceleration * delta
-		velocity = velocity.clamped(current_max_speed * speed_scale)
-		facing_dir = move_dir
+		velocity = move_and_slide(velocity)
 	else:
 		turn_sharpness = 0.0
 		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
-		
-	velocity = move_and_slide(velocity)
+		velocity = move_and_slide(velocity)
 	
 	# 2. Stick Aiming Direction & Smoothing
-	var stick_dir = GameManager.get_stick_input(global_position)
-	if stick_dir.length() == 0.0:
-		stick_dir = facing_dir
+	var stick_dir = Vector2.ZERO
+	if is_controlled:
+		stick_dir = GameManager.get_stick_input(global_position)
+		if stick_dir.length() == 0.0:
+			stick_dir = facing_dir
+	else:
+		var puck = get_node_or_null("../Puck")
+		if puck:
+			stick_dir = (puck.global_position - global_position).normalized()
+		else:
+			stick_dir = facing_dir
 		
 	raw_stick_angle = stick_dir.angle()
 	

@@ -25,6 +25,14 @@ script = ExtResource( 4 )
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Player"]
 shape = SubResource( 1 )
 
+[node name="Teammate" type="KinematicBody2D" parent="."]
+position = Vector2( 250, 100 )
+script = ExtResource( 4 )
+is_controlled = false
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Teammate"]
+shape = SubResource( 1 )
+
 [node name="Defender" type="KinematicBody2D" parent="."]
 position = Vector2( 0, -100 )
 script = ExtResource( 6 )
