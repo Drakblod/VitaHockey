@@ -20,7 +20,7 @@ export var possession_follow_speed := 16.0
 # Shooting/Passing variables
 export var wrist_shot_force := 550.0
 export var slap_shot_force := 950.0
-export var pass_force := 480.0
+export var pass_force := 450.0
 export var max_charge_time := 0.8
 
 # MVP 4: Skill Stick Deke variables
@@ -39,6 +39,7 @@ export var target_max_speed := 1200.0
 export var puck_control_distance := 45.0
 export var min_puck_control_distance := 38.0
 export var max_puck_control_distance := 55.0
+export var reception_radius := 65.0
 
 var state = State.FREE
 var velocity := Vector2.ZERO
@@ -70,6 +71,7 @@ var smoothed_target_distance := 0.0
 var _last_stick_angle := 0.0
 
 var last_pass_target: KinematicBody2D = null
+var pass_active := false
 var time_free := 0.0
 
 onready var player = get_node_or_null(player_path) as KinematicBody2D
@@ -88,24 +90,49 @@ func _physics_process(delta):
 
 func _process_free(delta):
 	time_free += delta
+	
+	if pass_active:
+		if time_free > 1.2:
+			pass_active = false
+			last_pass_target = null
+		elif velocity.length() < 120.0:
+			pass_active = false
+			last_pass_target = null
+
+	# Dynamic pass cushioning (slowdown) when puck gets close to targeted teammate receiver
+	if last_pass_target:
+		var dist_to_receiver = global_position.distance_to(last_pass_target.global_position)
+		if dist_to_receiver < 120.0:
+			velocity = velocity.move_toward(velocity.normalized() * 220.0, 1000.0 * delta)
+			
 	velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
 	
 	var collision = move_and_collide(velocity * delta)
 	if collision:
 		velocity = velocity.bounce(collision.normal) * bounce_coeff
 		move_and_collide(velocity.slide(collision.normal) * delta)
+		pass_active = false
+		last_pass_target = null
 		
 	if shoot_cooldown <= 0.0:
 		var players = get_tree().get_nodes_in_group("blue_team")
 		for p in players:
 			var dist_to_stick = global_position.distance_to(p.stick_target_pos)
+			var dist_to_body = global_position.distance_to(p.global_position)
+			
 			var can_capture = false
 			if p.is_controlled:
 				can_capture = (dist_to_stick < capture_radius)
 			else:
-				var is_last_pass_target = (p == last_pass_target)
-				var is_very_close = (dist_to_stick < capture_radius * 0.7)
-				can_capture = (is_last_pass_target and dist_to_stick < capture_radius) or (time_free >= 0.25 and is_very_close)
+				if pass_active:
+					# During an active pass, only the targeted teammate can capture it
+					if p == last_pass_target:
+						var min_reception_dist = min(dist_to_body, dist_to_stick)
+						can_capture = (min_reception_dist < reception_radius)
+				else:
+					# Loose puck: teammate can capture if free for >= 0.25s and very close to stick
+					var is_very_close = (dist_to_stick < capture_radius * 0.7)
+					can_capture = (time_free >= 0.25 and is_very_close)
 				
 			if can_capture:
 				_capture_puck(p)
@@ -304,6 +331,8 @@ func _capture_puck(p: KinematicBody2D):
 	smoothed_possessed_target = player.stick_target_pos
 	_last_desired_target = player.stick_target_pos
 	velocity = Vector2.ZERO
+	pass_active = false
+	last_pass_target = null
 	
 	var main = get_parent()
 	if main and main.has_method("set_active_player"):
@@ -326,8 +355,10 @@ func _release_puck(reason: String):
 			last_pass_target = main.get_pass_target()
 		else:
 			last_pass_target = null
+		pass_active = true
 	else:
 		last_pass_target = null
+		pass_active = false
 		
 	if player:
 		player.visual_stick_length = 55.0
@@ -339,7 +370,10 @@ func _release_puck(reason: String):
 func force_release(reason: String):
 	if state == State.POSSESSED:
 		_release_puck(reason)
-		shot_charge = 0.0
+	else:
+		last_pass_target = null
+		pass_active = false
+	shot_charge = 0.0
 
 func _shoot(charge_amount: float):
 	_release_puck("SHOT")

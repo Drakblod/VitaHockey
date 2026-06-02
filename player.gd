@@ -7,6 +7,7 @@ export var friction := 500.0
 # MVP 6: Visual stick separation
 export var visual_stick_length := 55.0
 export var is_controlled := true
+export var ai_support_speed := 120.0
 
 # MVP 2: Possession loss variables (Tuned)
 export var max_control_speed := 420.0
@@ -68,8 +69,50 @@ func _physics_process(delta):
 		velocity = move_and_slide(velocity)
 	else:
 		turn_sharpness = 0.0
-		velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
+		# Find the controlled puck carrier in the blue team
+		var carrier = null
+		var players = get_tree().get_nodes_in_group("blue_team")
+		for p in players:
+			if p.is_controlled:
+				carrier = p
+				break
+				
+		var target_position = Vector2(300.0, 0.0)
+		if carrier:
+			if carrier.global_position.x < 0.0:
+				# Carrier in defensive zone, stand in high slot
+				target_position = Vector2(250.0, 0.0)
+			else:
+				# Carrier in offensive zone, skate to slot/one-timer support spot
+				if carrier.global_position.y > 0.0:
+					target_position = Vector2(450.0, -120.0)
+				else:
+					target_position = Vector2(450.0, 120.0)
+					
+			# Repel teammate if too close to puck carrier to prevent crowding
+			var to_carrier = global_position - carrier.global_position
+			var dist_to_carrier = to_carrier.length()
+			if dist_to_carrier < 160.0 and dist_to_carrier > 0.0:
+				target_position += to_carrier.normalized() * 120.0
+				
+		# Stay inside rink boundaries
+		target_position.x = clamp(target_position.x, 100.0, 650.0)
+		target_position.y = clamp(target_position.y, -300.0, 300.0)
+		
+		# Simple steering to target position
+		var to_target = target_position - global_position
+		var dist_to_target = to_target.length()
+		
+		if dist_to_target < 25.0:
+			# Slow down/stop if within 25px of support spot
+			velocity = velocity.move_toward(Vector2.ZERO, friction * delta)
+		else:
+			var desired_velocity = to_target.normalized() * ai_support_speed
+			velocity = velocity.move_toward(desired_velocity, acceleration * delta)
+			
 		velocity = move_and_slide(velocity)
+		if velocity.length() > 10.0:
+			facing_dir = velocity.normalized()
 	
 	# 2. Stick Aiming Direction & Smoothing
 	var stick_dir = Vector2.ZERO
@@ -119,6 +162,14 @@ func _draw():
 		if main and main.has_method("get_pass_target"):
 			if main.get_pass_target() == self:
 				draw_arc(Vector2.ZERO, 28.0, 0, TAU, 24, Color("#f43f5e"), 3.0, true) # Rose indicator ring
+				
+				# Dotted/thin outline and transparent fill of the reception zone in debug mode
+				var is_debug = main.debug_ui_visible if ("debug_ui_visible" in main) else false
+				if is_debug:
+					var puck_node = get_node_or_null("../Puck")
+					var rec_rad = puck_node.reception_radius if (puck_node and "reception_radius" in puck_node) else 65.0
+					draw_circle(Vector2.ZERO, rec_rad, Color(0.96, 0.25, 0.37, 0.1))
+					draw_arc(Vector2.ZERO, rec_rad, 0, TAU, 32, Color(0.96, 0.25, 0.37, 0.3), 1.0, true)
 				
 	# Draw player body
 	draw_circle(Vector2.ZERO, 20.0, Color("#3b82f6")) # Blue team player
