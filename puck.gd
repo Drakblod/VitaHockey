@@ -525,17 +525,48 @@ func _short_angle_diff(from: float, to: float) -> float:
 	return diff
 
 func _draw():
-	# Show pass line in debug mode from passer to target
-	if state == State.TARGETED_PASS and last_pass_target and player:
-		var main = get_parent()
-		var is_debug = main.debug_ui_visible if ("debug_ui_visible" in main) else false
-		if is_debug:
-			var local_passer = player.global_position - global_position
-			var receive_point = last_pass_target.global_position
-			var local_receiver = receive_point - global_position
-			draw_line(local_passer, local_receiver, Color(0.14, 0.78, 0.36, 0.45), 2.5)
+	var is_perspective = GameManager.current_view_mode != GameManager.ViewMode.TOP_DOWN
+	
+	var scale_val = 1.0
+	var local_offset = Vector2.ZERO
+	
+	if is_perspective:
+		scale_val = GameManager.get_depth_scale(global_position)
+		local_offset = GameManager.project_position(global_position) - global_position
+		
+		# 1. Draw debug pass line first if active (needs unrotated, uniform scale)
+		draw_set_transform(local_offset, 0.0, Vector2.ONE * scale_val)
+		if state == State.TARGETED_PASS and last_pass_target and player:
+			var main = get_parent()
+			var is_debug = main.debug_ui_visible if ("debug_ui_visible" in main) else false
+			if is_debug:
+				var local_passer = player.global_position - global_position
+				var receive_point = last_pass_target.global_position
+				var local_receiver = receive_point - global_position
+				draw_line(local_passer, local_receiver, Color(0.14, 0.78, 0.36, 0.45), 2.5)
+		
+		# 2. Draw flat shadow (unrotated, flat Y-scaling)
+		draw_set_transform(local_offset, 0.0, Vector2(scale_val, scale_val * 0.4))
+		draw_circle(Vector2(0, 5.0), 7.0, Color(0, 0, 0, 0.25))
+		
+		# 3. Draw puck body (unrotated, uniform scale)
+		draw_set_transform(local_offset, 0.0, Vector2.ONE * scale_val)
+	else:
+		# Draw default pass line for top-down view
+		if state == State.TARGETED_PASS and last_pass_target and player:
+			var main = get_parent()
+			var is_debug = main.debug_ui_visible if ("debug_ui_visible" in main) else false
+			if is_debug:
+				var local_passer = player.global_position - global_position
+				var receive_point = last_pass_target.global_position
+				var local_receiver = receive_point - global_position
+				draw_line(local_passer, local_receiver, Color(0.14, 0.78, 0.36, 0.45), 2.5)
+				
+		# Draw default flat shadow for top-down view (slightly offset)
+		draw_circle(Vector2(2, 2), 7.0, Color(0, 0, 0, 0.25))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-	draw_circle(Vector2(2, 2), 7.0, Color(0, 0, 0, 0.25))
+	# Draw Puck Body
 	draw_circle(Vector2.ZERO, 7.0, Color("#0f172a"))
 	draw_circle(Vector2.ZERO, 5.0, Color("#1e293b"))
 	if state == State.POSSESSED:

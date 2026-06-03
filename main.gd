@@ -240,13 +240,46 @@ func setup_faceoff(full_reset_timer: bool):
 	puck.global_position = Vector2.ZERO
 	
 	# Snap camera instantly and reset smoothing
-	camera.global_position = player.global_position
+	camera.global_position = get_camera_target_position()
 	camera.reset_smoothing()
 
+func get_camera_target_position() -> Vector2:
+	var current_view = GameManager.current_view_mode
+	if current_view == GameManager.ViewMode.TOP_DOWN:
+		return player.global_position
+	elif current_view == GameManager.ViewMode.FAKE_2_5D:
+		return GameManager.project_position(player.global_position)
+	elif current_view == GameManager.ViewMode.DYNAMIC:
+		var offset_pos = player.global_position + Vector2(120.0, 0.0)
+		offset_pos.x = clamp(offset_pos.x, -680.0, 680.0)
+		offset_pos.y = clamp(offset_pos.y, -260.0, 260.0)
+		return GameManager.project_position(offset_pos)
+	elif current_view == GameManager.ViewMode.BROADCAST_VIEW:
+		# Follow the puck if available. Otherwise follow the active player.
+		var follow_target = puck if (puck and puck.is_inside_tree()) else player
+		var target_gpos = follow_target.global_position
+		
+		# Slight forward bias toward the offensive direction (+X in gameplay)
+		var offset_pos = target_gpos + Vector2(80.0, 0.0)
+		
+		# Clamp gameplay position to rink bounds
+		offset_pos.x = clamp(offset_pos.x, -600.0, 600.0)
+		offset_pos.y = clamp(offset_pos.y, -200.0, 200.0)
+		
+		var projected = GameManager.project_position(offset_pos)
+		
+		# Keep full rink width visible: lock screen X to 0.0
+		return Vector2(0.0, projected.y)
+		
+	return player.global_position
+
 func _process(delta):
-	# Camera smoothly tracks player
+	# Camera smoothly tracks player with mode-specific offsets
 	if player and game_state != GameState.FACEOFF and game_state != GameState.PERIOD_OVER:
-		camera.global_position = player.global_position
+		var target_pos = get_camera_target_position()
+		# Use slower, smoother camera tracking for BROADCAST_VIEW (3.0 * delta)
+		var tracking_speed = 3.0 if GameManager.current_view_mode == GameManager.ViewMode.BROADCAST_VIEW else 5.0
+		camera.global_position = camera.global_position.linear_interpolate(target_pos, tracking_speed * delta)
 
 	# Handle resets at any time
 	if GameManager.is_reset_pressed():
@@ -404,6 +437,13 @@ func _process(delta):
 			"Stick Angle: %.1f°\n" +
 			"Puck State: %s\n" +
 			"Puck Speed: %.1f px/s\n\n" +
+			"Input & Calibration Debug:\n" +
+			"  view_mode: %d\n" +
+			"  raw_screen_input: (%.2f, %.2f)\n" +
+			"  converted_world_input: (%.2f, %.2f)\n" +
+			"  broadcast_invert_x (I): %s\n" +
+			"  broadcast_invert_y (O): %s\n" +
+			"  broadcast_swap_axes (P): %s\n\n" +
 			"Possession Stats:\n" +
 			"  Time Possessed: %.2f s\n" +
 			"  Stick Ang Velocity: %.1f°/s\n" +
@@ -438,6 +478,12 @@ func _process(delta):
 			"  Toggle Debug Window: K"
 		) % [
 			score_str, fps, player_speed, stick_angle_deg, puck_state_str, puck_speed,
+			GameManager.current_view_mode,
+			GameManager.debug_raw_input.x, GameManager.debug_raw_input.y,
+			GameManager.debug_world_input.x, GameManager.debug_world_input.y,
+			str(GameManager.broadcast_invert_x),
+			str(GameManager.broadcast_invert_y),
+			str(GameManager.broadcast_swap_axes),
 			time_possessed, stick_ang_vel, turn_sharpness, turn_loss_status, active_deke, loss_reason,
 			pass_state_str, dist_to_recv_str, auto_cap_rad_str,
 			stick_target_to_puck_dist, desired_target_dist, smoothed_target_dist,

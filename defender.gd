@@ -83,16 +83,32 @@ func _execute_poke_check():
 		puck.velocity = push_dir * 450.0
 
 func _draw():
+	var is_perspective = GameManager.current_view_mode != GameManager.ViewMode.TOP_DOWN
+	
+	var scale_val = 1.0
+	var local_offset = Vector2.ZERO
+	
+	if is_perspective:
+		scale_val = GameManager.get_depth_scale(global_position)
+		local_offset = GameManager.project_position(global_position) - global_position
+		
+		# 1. Draw flat shadow first (unrotated, flat Y-scaling)
+		draw_set_transform(local_offset, 0.0, Vector2(scale_val, scale_val * 0.4))
+		draw_circle(Vector2(0, 15.0), 18.0, Color(0, 0, 0, 0.2))
+		
+		# 2. Draw body (unrotated, uniform scale)
+		draw_set_transform(local_offset, 0.0, Vector2.ONE * scale_val)
+	else:
+		# Draw default flat shadow for top-down view (slightly offset)
+		draw_circle(Vector2(2, 6), 18.0, Color(0, 0, 0, 0.2))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
 	# Draw defender body (Red team opponent)
 	draw_circle(Vector2.ZERO, 20.0, Color("#ef4444"))
 	
-	# Draw facing direction
-	draw_line(Vector2.ZERO, facing_dir * 20.0, Color("#ffffff"), 3.0)
-	
-	# Draw stick
-	var stick_color = Color("#b45309")
+	# Determine drawing vectors (convert world vectors to screen vectors in BROADCAST_VIEW)
+	var draw_facing = facing_dir
 	var stick_target := Vector2.ZERO
-	
 	if _draw_poke_timer > 0.0:
 		stick_target = _poke_visual_target - global_position
 	else:
@@ -101,7 +117,17 @@ func _draw():
 			stick_dir = (puck.global_position - global_position).normalized()
 		stick_target = stick_dir * 38.0
 		
-	draw_line(Vector2.ZERO, stick_target, stick_color, 4.0)
+	var draw_stick_target = stick_target
+	if GameManager.current_view_mode == GameManager.ViewMode.BROADCAST_VIEW:
+		draw_facing = Vector2(facing_dir.y, -facing_dir.x)
+		draw_stick_target = Vector2(stick_target.y, -stick_target.x)
 	
-	var blade_perp = stick_target.normalized().rotated(PI/2) * 8.0
-	draw_line(stick_target - blade_perp, stick_target + blade_perp, stick_color, 5.0)
+	# Draw facing direction
+	draw_line(Vector2.ZERO, draw_facing * 20.0, Color("#ffffff"), 3.0)
+	
+	# Draw stick
+	var stick_color = Color("#b45309")
+	draw_line(Vector2.ZERO, draw_stick_target, stick_color, 4.0)
+	
+	var blade_perp = draw_stick_target.normalized().rotated(PI/2) * 8.0
+	draw_line(draw_stick_target - blade_perp, draw_stick_target + blade_perp, stick_color, 5.0)

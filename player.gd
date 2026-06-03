@@ -156,6 +156,26 @@ func _physics_process(delta):
 	update()
 
 func _draw():
+	var is_perspective = GameManager.current_view_mode != GameManager.ViewMode.TOP_DOWN
+	
+	var scale_val = 1.0
+	var local_offset = Vector2.ZERO
+	
+	if is_perspective:
+		scale_val = GameManager.get_depth_scale(global_position)
+		local_offset = GameManager.project_position(global_position) - global_position
+		
+		# 1. Draw flat shadow first (unrotated, flat Y-scaling)
+		draw_set_transform(local_offset, 0.0, Vector2(scale_val, scale_val * 0.4))
+		draw_circle(Vector2(0, 15.0), 18.0, Color(0, 0, 0, 0.2))
+		
+		# 2. Draw body and indicators (unrotated, uniform scale)
+		draw_set_transform(local_offset, 0.0, Vector2.ONE * scale_val)
+	else:
+		# Draw default flat shadow for top-down view (slightly offset)
+		draw_circle(Vector2(2, 6), 18.0, Color(0, 0, 0, 0.2))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
 	# Draw pass indicator ring and debug text if active player has possession
 	if not is_controlled:
 		var main = get_parent()
@@ -203,14 +223,23 @@ func _draw():
 	# Draw player body
 	draw_circle(Vector2.ZERO, 20.0, Color("#3b82f6")) # Blue team player
 	
+	# Determine drawing vectors (convert world vectors to screen vectors in BROADCAST_VIEW)
+	var draw_facing = facing_dir
+	var draw_stick_angle = stick_angle
+	if GameManager.current_view_mode == GameManager.ViewMode.BROADCAST_VIEW:
+		draw_facing = Vector2(facing_dir.y, -facing_dir.x)
+		var world_stick_dir = Vector2.RIGHT.rotated(stick_angle)
+		var screen_stick_dir = Vector2(world_stick_dir.y, -world_stick_dir.x)
+		draw_stick_angle = screen_stick_dir.angle()
+	
 	# Draw player facing direction
-	draw_line(Vector2.ZERO, facing_dir * 20.0, Color("#ffffff"), 3.0)
+	draw_line(Vector2.ZERO, draw_facing * 20.0, Color("#ffffff"), 3.0)
 	
 	# Draw hockey stick
 	var stick_color = Color("#d97706") # Dark Amber/Wooden
-	var local_stick_target = stick_target_pos - global_position
+	var local_stick_target = Vector2.RIGHT.rotated(draw_stick_angle) * visual_stick_length
 	draw_line(Vector2.ZERO, local_stick_target, stick_color, 4.0)
 	
 	# Draw stick blade
-	var blade_perp = Vector2.RIGHT.rotated(stick_angle + PI/2) * 10.0
+	var blade_perp = Vector2.RIGHT.rotated(draw_stick_angle + PI/2) * 10.0
 	draw_line(local_stick_target - blade_perp * 0.5, local_stick_target + blade_perp * 0.5, stick_color, 6.0)
