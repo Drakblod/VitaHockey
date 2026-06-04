@@ -18,6 +18,9 @@ func _ready():
 	if OS.get_name() in ["PSP2", "Vita"]:
 		_use_mouse = false
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+	
+	# Initial camera alignment looking directly at origin
+	camera.look_at(Vector3.ZERO, Vector3.UP)
 
 func _input(event):
 	if event is InputEventMouseMotion:
@@ -25,6 +28,14 @@ func _input(event):
 	elif event is InputEventJoypadMotion:
 		if event.device == 0 and event.axis in [2, 3] and abs(event.axis_value) > 0.2:
 			_use_mouse = false
+
+func get_mesh_count(node: Node) -> int:
+	var count = 0
+	if node is MeshInstance:
+		count += 1
+	for child in node.get_children():
+		count += get_mesh_count(child)
+	return count
 
 func _physics_process(delta):
 	# 1. Player Movement (WASD / Left Stick)
@@ -37,9 +48,9 @@ func _physics_process(delta):
 	if move_dir.length() > 0.1:
 		player.translation += move_dir.normalized() * player_speed * delta
 		
-	# Clamp player to rink boundaries
-	player.translation.x = clamp(player.translation.x, -39.0, 39.0)
-	player.translation.z = clamp(player.translation.z, -19.0, 19.0)
+	# Clamp player to rink boundaries (rink size is 40x20)
+	player.translation.x = clamp(player.translation.x, -19.0, 19.0)
+	player.translation.z = clamp(player.translation.z, -9.0, 9.0)
 	
 	# 2. Stick Rotation (Right Stick / Mouse)
 	var stick_input = Vector2(
@@ -62,12 +73,12 @@ func _physics_process(delta):
 	puck_vel = puck_vel.move_toward(Vector3.ZERO, puck_friction * delta)
 	puck.translation += puck_vel * delta
 	
-	# Puck bounce off walls
-	if abs(puck.translation.x) > 39.0:
-		puck.translation.x = sign(puck.translation.x) * 39.0
+	# Puck bounce off walls (rink size is 40x20)
+	if abs(puck.translation.x) > 19.0:
+		puck.translation.x = sign(puck.translation.x) * 19.0
 		puck_vel.x = -puck_vel.x * 0.7
-	if abs(puck.translation.z) > 19.0:
-		puck.translation.z = sign(puck.translation.z) * 19.0
+	if abs(puck.translation.z) > 9.0:
+		puck.translation.z = sign(puck.translation.z) * 9.0
 		puck_vel.z = -puck_vel.z * 0.7
 		
 	# 4. Shooting (Detect if puck is near stick blade)
@@ -79,10 +90,11 @@ func _physics_process(delta):
 			var shoot_dir = Vector3.RIGHT.rotated(Vector3.UP, pivot.rotation.y)
 			puck_vel = shoot_dir * shot_force
 			
-	# 5. Camera Tracking
+	# 5. Camera Tracking (Centering camera on the player and aiming at them)
 	camera.translation.x = lerp(camera.translation.x, player.translation.x, 3.0 * delta)
-	camera.translation.z = lerp(camera.translation.z, player.translation.z + 14.0, 3.0 * delta)
+	camera.translation.z = lerp(camera.translation.z, player.translation.z + 24.0, 3.0 * delta)
 	camera.translation.y = 18.0
+	camera.look_at(player.translation, Vector3.UP)
 	
 	# 6. Reset Position
 	if Input.is_action_just_pressed("reset"):
@@ -92,15 +104,27 @@ func _physics_process(delta):
 		
 	# 7. Update Debug Overlay
 	var fps = Engine.get_frames_per_second()
+	var mesh_count = get_mesh_count(get_tree().root)
 	debug_label.text = (
-		"3D Feasibility Test\n" +
+		"3D Feasibility Test (Debug)\n" +
 		"FPS: %d\n" +
-		"Player Pos: (%.1f, %.1f)\n" +
-		"Puck Pos: (%.1f, %.1f)\n" +
+		"Camera Pos: (%.1f, %.1f, %.1f)\n" +
+		"Camera Current: %s\n" +
+		"Player Pos: (%.1f, %.1f, %.1f)\n" +
+		"Puck Pos: (%.1f, %.1f, %.1f)\n" +
+		"Meshes Found: %d\n" +
 		"Dist to Puck: %.1f\n" +
 		"Controls:\n" +
 		"  Move: WASD / Left Stick\n" +
 		"  Stick: Mouse / Right Stick\n" +
 		"  Shoot: Left Click / Space / Circle\n" +
 		"  Reset: R / Start"
-	) % [fps, player.translation.x, player.translation.z, puck.translation.x, puck.translation.z, dist_to_puck]
+	) % [
+		fps, 
+		camera.translation.x, camera.translation.y, camera.translation.z,
+		str(camera.current),
+		player.translation.x, player.translation.y, player.translation.z,
+		puck.translation.x, puck.translation.y, puck.translation.z,
+		mesh_count,
+		dist_to_puck
+	]

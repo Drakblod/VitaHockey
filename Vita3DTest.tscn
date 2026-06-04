@@ -4,11 +4,11 @@
 
 [sub_resource type="SpatialMaterial" id=1]
 flags_unshaded = true
-albedo_color = Color( 0.9, 0.95, 1, 1 )
+albedo_color = Color( 0.2, 0.8, 1, 1 )
 
-[sub_resource type="PlaneMesh" id=2]
+[sub_resource type="CubeMesh" id=2]
 material = SubResource( 1 )
-size = Vector2( 80, 40 )
+size = Vector3( 40, 0.1, 20 )
 
 [sub_resource type="SpatialMaterial" id=3]
 flags_unshaded = true
@@ -40,11 +40,11 @@ size = Vector3( 0.2, 0.2, 2.5 )
 
 [sub_resource type="SpatialMaterial" id=9]
 flags_unshaded = true
-albedo_color = Color( 0.9, 0.2, 0.2, 1 )
+albedo_color = Color( 1, 0, 0, 1 )
 
 [sub_resource type="CubeMesh" id=10]
 material = SubResource( 9 )
-size = Vector3( 1.0, 2.0, 4.0 )
+size = Vector3( 3, 3, 3 )
 
 [node name="Vita3DTest" type="Spatial"]
 script = ExtResource( 1 )
@@ -70,25 +70,21 @@ transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 5 )
 [node name="MeshInstance" type="MeshInstance" parent="Puck"]
 mesh = SubResource( 6 )
 
-[node name="GoalLeft" type="MeshInstance" parent="."]
-transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, -38, 1, 0 )
-mesh = SubResource( 10 )
-
-[node name="GoalRight" type="MeshInstance" parent="."]
-transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 38, 1, 0 )
+[node name="TestCube" type="MeshInstance" parent="."]
 mesh = SubResource( 10 )
 
 [node name="Camera" type="Camera" parent="."]
-transform = Transform( 1, 0, 0, 0, 0.5, 0.866, 0, -0.866, 0.5, 0, 18, 14 )
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 18, 24 )
 current = true
 fov = 55.0
-far = 150.0
+near = 0.1
+far = 200.0
 
 [node name="UI" type="CanvasLayer" parent="."]
 
 [node name="DebugLabel" type="Label" parent="UI"]
 margin_left = 24.0
 margin_top = 24.0
-margin_right = 400.0
-margin_bottom = 200.0
+margin_right = 500.0
+margin_bottom = 300.0
 text = "FPS: 60"
