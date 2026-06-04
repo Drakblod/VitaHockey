@@ -37,7 +37,7 @@ def main():
     # Create patched SFO for standard build
     print("Creating patched SFO data for 3D bubble...")
     patched_param_sfo = demo_param_sfo.replace(b"GDOT00001", b"VTAH3D001")
-    patched_param_sfo = patched_param_sfo.replace(b"Godot Engine", b"VitaHockey3D\x00")
+    patched_param_sfo = patched_param_sfo.replace(b"Godot Engine", b"VitaHockey3D")
     patched_param_sfo = patched_param_sfo.replace(b"00.00", b"01.00")
     
     # Standard custom icon
