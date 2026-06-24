@@ -59,7 +59,16 @@ export var capture_radius := 0.65
 export var shot_recapture_delay := 0.25
 export var puck_ice_height := 0.125
 
+export var puck_gravity := 24.0
+export var wrist_shot_lift := 3.0
+export var slapshot_min_lift := 4.0
+export var slapshot_max_lift := 8.0
+export var puck_vertical_bounce := 0.2
+export var enable_shot_elevation := true
+
 var recapture_timer := 0.0
+var puck_vertical_velocity := 0.0
+var last_shot_lift := 0.0
 
 # Refactored ShotState Enum
 enum ShotState { CARRY, SLAP_LOADING, RELEASED, CANCELLED }
@@ -116,7 +125,6 @@ func _input(event):
 	pass
 
 # Shot release helper function
-# Shot release helper function
 func _release_shot(force: float, shot_type: String):
 	# Calculate shot direction: vector from player body center to current puck position
 	var shot_dir = puck.global_transform.origin - player.global_transform.origin
@@ -136,6 +144,19 @@ func _release_shot(force: float, shot_type: String):
 	current_puck_state = PuckState.FREE
 	current_shot_state = ShotState.RELEASED
 	
+	# Determine vertical shot elevation lift before clearing charge percentages
+	if enable_shot_elevation:
+		if "WRIST" in shot_type:
+			puck_vertical_velocity = wrist_shot_lift
+		elif "SLAP" in shot_type:
+			var t = slap_charge_percent / 100.0
+			puck_vertical_velocity = lerp(slapshot_min_lift, slapshot_max_lift, t)
+		else:
+			puck_vertical_velocity = 0.0
+	else:
+		puck_vertical_velocity = 0.0
+		
+	last_shot_lift = puck_vertical_velocity
 	last_shot_type = shot_type
 	last_shot_force = force
 	last_shot_dir = shot_dir
@@ -268,6 +289,7 @@ func _physics_process(delta):
 			blade_target.translation = Vector3(0.0, -1.2, base_forward)
 			puck.global_transform.origin = blade_target.global_transform.origin
 			puck.global_transform.origin.y = puck_ice_height
+			puck_vertical_velocity = 0.0
 			slap_charge = 0.0
 			slap_charge_percent = 0.0
 			stick_y_velocity = 0.0
@@ -280,6 +302,7 @@ func _physics_process(delta):
 		puck.global_transform.origin.z = blade_target.global_transform.origin.z
 		puck.global_transform.origin.y = puck_ice_height
 		puck_vel = Vector3.ZERO
+		puck_vertical_velocity = 0.0
 		dist_to_target = puck.global_transform.origin.distance_to(blade_target.global_transform.origin)
 		
 	# 4. Process Shot State
@@ -344,9 +367,25 @@ func _physics_process(delta):
 			
 	# 5. Process Free Puck Physics
 	if current_puck_state == PuckState.FREE:
+		# Continue existing X/Z movement and friction
 		puck_vel = puck_vel.move_toward(Vector3.ZERO, puck_friction * delta)
-		puck.translation += puck_vel * delta
+		puck.translation.x += puck_vel.x * delta
+		puck.translation.z += puck_vel.z * delta
 		
+		# Apply gravity
+		puck_vertical_velocity -= puck_gravity * delta
+		
+		# Update puck height
+		puck.translation.y += puck_vertical_velocity * delta
+		
+		# Ice collision
+		if puck.translation.y <= puck_ice_height:
+			puck.translation.y = puck_ice_height
+			if abs(puck_vertical_velocity) > 2.0:
+				puck_vertical_velocity = -puck_vertical_velocity * puck_vertical_bounce
+			else:
+				puck_vertical_velocity = 0.0
+				
 		# Puck walls bouncing (rink size is 80x40)
 		if abs(puck.translation.x) > 39.0:
 			puck.translation.x = sign(puck.translation.x) * 39.0
@@ -355,9 +394,6 @@ func _physics_process(delta):
 			puck.translation.z = sign(puck.translation.z) * 19.0
 			puck_vel.z = -puck_vel.z * 0.7
 			
-		# Ensure puck always sits at puck_ice_height even when FREE
-		puck.translation.y = puck_ice_height
-		
 	# 6. Update Camera/HUD
 	# Camera Smooth Tracking (NHL broadcast-follow camera with damped yaw)
 	cam_yaw = lerp_angle(cam_yaw, body_angle, camera_yaw_smooth * delta)
@@ -374,6 +410,7 @@ func _physics_process(delta):
 		player.translation = Vector3(0, 1.5, 0)
 		puck.translation = Vector3(0, puck_ice_height, 6)
 		puck_vel = Vector3.ZERO
+		puck_vertical_velocity = 0.0
 		current_puck_state = PuckState.FREE
 		current_shot_state = ShotState.CARRY
 		cam_yaw = body_mesh.rotation.y
@@ -386,9 +423,10 @@ func _physics_process(delta):
 		blade_target.translation = Vector3(0.0, -1.2, base_forward)
 		stick_y_velocity = 0.0
 		prev_stick_raw_y = 0.0
-		recapture_timer = shot_recapture_delay # Start recapture delay after reset
+		recapture_timer = shot_recapture_delay
 		last_shot_type = "NONE"
 		last_shot_force = 0.0
+		last_shot_lift = 0.0
 		last_shot_dir = Vector3.ZERO
 		
 	# Update HUD display
@@ -402,14 +440,15 @@ func _physics_process(delta):
 		ShotState.CANCELLED: state_name = "CANCELLED"
 		
 	debug_label.text = (
-		"3D Forehand/Backhand Puck Sweep (Shooting Debug)\n" +
+		"3D Forehand/Backhand Puck Sweep (Basic Shot Elevation)\n" +
 		"FPS: %d\n\n" +
 		"Debug Info:\n" +
 		"  puck_state:          %s\n" +
 		"  shot_state:          %s (%d%%)\n" +
 		"  did_released_frame:  %s\n" +
 		"  puck_vel.length():   %.2f\n" +
-		"  shot_dir:            (%.2f, %.2f, %.2f)\n" +
+		"  puck height:         %.3f\n" +
+		"  puck vert velocity:  %.3f\n" +
 		"  distance to target:  %.5f\n" +
 		"  using_neutral_stick: %s\n" +
 		"  control_point_local: (%.2f, %.2f)\n" +
@@ -422,7 +461,8 @@ func _physics_process(delta):
 		"  stick_y_velocity:    %.2f\n" +
 		"  shot_cooldown_timer: %.2fs\n" +
 		"  last_shot_type:      %s\n" +
-		"  last_shot_force:     %.1f\n\n" +
+		"  last_shot_force:     %.1f\n" +
+		"  last_shot_lift:      %.1f\n\n" +
 		"Controls:\n" +
 		"  Skate (move): WASD / Left Stick (relative to Camera)\n" +
 		"  Deke (sweep): Right Stick X (forehand <-> backhand)\n" +
@@ -437,7 +477,8 @@ func _physics_process(delta):
 		int(load_pct),
 		str(did_release_shot_this_frame),
 		puck_vel.length(),
-		last_shot_dir.x, last_shot_dir.y, last_shot_dir.z,
+		puck.translation.y,
+		puck_vertical_velocity,
 		dist_to_target,
 		str(using_neutral_stick),
 		local_x,
@@ -450,6 +491,7 @@ func _physics_process(delta):
 		shot_cooldown_timer,
 		last_shot_type,
 		last_shot_force,
+		last_shot_lift,
 		wrist_release_threshold,
 		pull_load_threshold,
 		flick_release_threshold
