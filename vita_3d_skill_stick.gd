@@ -179,10 +179,10 @@ func _physics_process(delta):
 		var player_vel = move_dir * player_speed
 		player.translation += player_vel * delta
 		
-		# Smoothly rotate player body to face skating direction, but NOT during slap wind-up
-		if not (current_shot_state == ShotState.SLAP_LOADING):
-			var target_angle = atan2(move_dir.x, move_dir.z)
-			body_mesh.rotation.y = lerp_angle(body_mesh.rotation.y, target_angle, 10.0 * delta)
+	# Smoothly rotate player body to face skating direction (only when moving), but NOT during slap wind-up
+	if move_dir.length() > 0.1 and not (current_shot_state == ShotState.SLAP_LOADING):
+		var target_angle = atan2(move_dir.x, move_dir.z)
+		body_mesh.rotation.y = lerp_angle(body_mesh.rotation.y, target_angle, 10.0 * delta)
 		
 	# Clamp player to rink boundaries (rink size is 80x40)
 	player.translation.x = clamp(player.translation.x, -39.0, 39.0)
@@ -323,12 +323,6 @@ func _physics_process(delta):
 								slap_charge_percent = 0.0
 						else:
 							cancel_timer = 0.0
-							
-					# Cancel slapshot if stick is let go completely
-					if stick_mag < 0.15:
-						current_shot_state = ShotState.CANCELLED
-						slap_charge = 0.0
-						slap_charge_percent = 0.0
 				else:
 					current_shot_state = ShotState.CANCELLED
 					slap_charge = 0.0
