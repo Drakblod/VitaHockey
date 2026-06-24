@@ -53,7 +53,7 @@ onready var debug_label = $UI/DebugLabel
 enum PuckState { FREE, POSSESSED }
 var current_puck_state = PuckState.FREE
 var puck_vel := Vector3.ZERO
-var _use_mouse := true
+var _use_mouse := false
 
 # Refactored ShotState Enum
 enum ShotState { CARRY, SLAP_LOADING, RELEASED, CANCELLED }
@@ -107,11 +107,7 @@ func _ready():
 	local_z = base_forward
 
 func _input(event):
-	if event is InputEventMouseMotion:
-		_use_mouse = true
-	elif event is InputEventJoypadMotion:
-		if event.device == 0 and event.axis in [2, 3] and abs(event.axis_value) > 0.2:
-			_use_mouse = false
+	pass
 
 # Shot release helper function
 func _release_shot(force: float, shot_type: String):
@@ -220,18 +216,6 @@ func _physics_process(delta):
 	if stick_mag > 0.15:
 		target_local_x = clamp(raw_x * side_reach, min_local_x, max_local_x)
 		target_local_z = clamp(base_forward - stick_raw_y * forward_reach, min_local_z, max_local_z)
-	elif _use_mouse:
-		var player_screen_pos = camera.unproject_position(player.global_transform.origin)
-		var mouse_screen_pos = get_viewport().get_mouse_position()
-		var screen_dir = mouse_screen_pos - player_screen_pos
-		if screen_dir.length() > 5.0:
-			var ratio_x = clamp(screen_dir.x / 120.0, -1.0, 1.0)
-			# Apply inversion to mouse as well for consistency
-			if invert_stick_sweep_x:
-				ratio_x = -ratio_x
-			var ratio_y = clamp(-screen_dir.y / 120.0, -1.0, 1.0) # Negate screen Y for forward/back
-			target_local_x = clamp(ratio_x * side_reach, min_local_x, max_local_x)
-			target_local_z = clamp(base_forward + ratio_y * forward_reach, min_local_z, max_local_z)
 	else:
 		target_local_x = 0.0
 		target_local_z = base_forward
