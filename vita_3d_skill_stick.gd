@@ -190,9 +190,19 @@ func _physics_process(delta):
 		Input.get_action_strength("stick_down") - Input.get_action_strength("stick_up") # Down = positive, Up = negative
 	)
 	
-	var stick_mag = stick_input.length()
-	var stick_raw_x = stick_input.x
-	var stick_raw_y = stick_input.y
+	# Raw right-stick axis debug directly from controller (device 0)
+	var joy_rx = Input.get_joy_axis(0, JOY_AXIS_2)
+	var joy_ry = Input.get_joy_axis(0, JOY_AXIS_3)
+	
+	# Determine stick raw values: prioritize raw joystick input, fall back to action strengths / mouse
+	var stick_raw_x = joy_rx
+	var stick_raw_y = joy_ry
+	
+	if abs(joy_rx) < 0.05 and abs(joy_ry) < 0.05:
+		stick_raw_x = stick_input.x
+		stick_raw_y = stick_input.y
+		
+	var stick_mag = Vector2(stick_raw_x, stick_raw_y).length()
 	
 	# Invert X axis if enabled
 	var raw_x = stick_raw_x
@@ -243,11 +253,17 @@ func _physics_process(delta):
 	
 	# 3. Arcade Shooting State Machine (Re-enabled with Button Fallbacks)
 	if current_puck_state == PuckState.POSSESSED:
-		# Space on PC or Circle on Vita forces a wrist shot instantly
-		if Input.is_action_just_pressed("shoot") and shot_cooldown_timer <= 0.0:
+		# Temporary button shot test: Press A (Cross) or Space = guaranteed wrist shot
+		var button_shot_pressed = false
+		if Input.is_action_just_pressed("shoot") or Input.is_action_just_pressed("pass"):
+			button_shot_pressed = true
+		if Input.is_key_pressed(KEY_SPACE) or Input.is_joy_button_pressed(0, JOY_BUTTON_0):
+			if shot_cooldown_timer <= 0.0:
+				button_shot_pressed = true
+				
+		if button_shot_pressed:
 			_release_shot(wrist_shot_force, "BUTTON_WRIST")
-			
-		if current_shot_state != ShotState.RELEASED:
+		elif current_shot_state != ShotState.RELEASED:
 			match current_shot_state:
 				ShotState.CARRY:
 					if shot_cooldown_timer <= 0.0:
@@ -369,7 +385,7 @@ func _physics_process(delta):
 		ShotState.CANCELLED: state_name = "CANCELLED"
 		
 	debug_label.text = (
-		"3D Forehand/Backhand Puck Sweep (Shooting Released)\n" +
+		"3D Forehand/Backhand Puck Sweep (Shooting Debug)\n" +
 		"FPS: %d\n\n" +
 		"Debug Info:\n" +
 		"  puck_state:          %s\n" +
@@ -378,6 +394,9 @@ func _physics_process(delta):
 		"  puck_vel.length():   %.2f\n" +
 		"  shot_dir:            (%.2f, %.2f, %.2f)\n" +
 		"  distance to target:  %.5f\n\n" +
+		"Controller Raw Input (Device 0):\n" +
+		"  joy_rx (axis 2):     %.2f\n" +
+		"  joy_ry (axis 3):     %.2f\n\n" +
 		"Shot Settings:\n" +
 		"  stick_raw_y:         %.2f\n" +
 		"  stick_y_velocity:    %.2f\n" +
@@ -388,7 +407,7 @@ func _physics_process(delta):
 		"  Skate (move): WASD / Left Stick (relative to Camera)\n" +
 		"  Deke (sweep): Right Stick X (forehand <-> backhand)\n" +
 		"  Push/Pull:    Right Stick Y\n" +
-		"  Wrist Shot:   Push Forward (<%.2f) OR Space / Circle\n" +
+		"  Wrist Shot:   Push Forward (<%.2f) OR Space / Circle / Cross\n" +
 		"  Slapshot:     Pull Down (>%.2f) to load, then push Up (<%.2f)!\n" +
 		"  Reset: R / Start"
 	) % [
@@ -400,6 +419,8 @@ func _physics_process(delta):
 		puck_vel.length(),
 		last_shot_dir.x, last_shot_dir.y, last_shot_dir.z,
 		dist_to_target,
+		joy_rx,
+		joy_ry,
 		stick_raw_y,
 		stick_y_velocity,
 		shot_cooldown_timer,
