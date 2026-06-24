@@ -377,7 +377,7 @@ func _physics_process(delta):
 	
 	# Reset Position Action
 	if Input.is_action_just_pressed("reset"):
-		player.translation = Vector3.ZERO
+		player.translation = Vector3(0, 1.5, 0)
 		puck.translation = Vector3(0, puck_ice_height, 6)
 		puck_vel = Vector3.ZERO
 		current_puck_state = PuckState.FREE
