@@ -200,6 +200,17 @@ func _physics_process(delta):
 		
 	var stick_mag = Vector2(stick_raw_x, stick_raw_y).length()
 	
+	var using_neutral_stick := false
+	if stick_mag > 0.15:
+		# Active stick input
+		pass
+	else:
+		# Neutral stick state: smoothly return stick_raw_x to 0, stick_raw_y to neutral Y (-0.5)
+		using_neutral_stick = true
+		stick_raw_x = lerp(stick_raw_x, 0.0, 15.0 * delta)
+		stick_raw_y = lerp(stick_raw_y, -0.5, 15.0 * delta)
+		stick_mag = Vector2(stick_raw_x, stick_raw_y).length()
+		
 	# Invert X axis if enabled
 	var raw_x = stick_raw_x
 	if invert_stick_sweep_x:
@@ -213,7 +224,7 @@ func _physics_process(delta):
 	var target_local_x := 0.0
 	var target_local_z := base_forward
 	
-	if stick_mag > 0.15:
+	if not using_neutral_stick:
 		target_local_x = clamp(raw_x * side_reach, min_local_x, max_local_x)
 		target_local_z = clamp(base_forward - stick_raw_y * forward_reach, min_local_z, max_local_z)
 	else:
@@ -323,6 +334,15 @@ func _physics_process(delta):
 		if dist_to_target < 1.8:
 			current_puck_state = PuckState.POSSESSED
 			current_shot_state = ShotState.CARRY
+			# Capture reset: force control point to neutral directly in front of skater
+			local_x = 0.0
+			local_z = base_forward
+			blade_target.translation = Vector3(0.0, -1.2, base_forward)
+			puck.global_transform.origin = blade_target.global_transform.origin
+			slap_charge = 0.0
+			slap_charge_percent = 0.0
+			stick_y_velocity = 0.0
+			prev_stick_raw_y = -0.5
 			
 	elif current_puck_state == PuckState.POSSESSED:
 		# Lock puck directly to the local target in body's space (no physics, no camera drift)
@@ -354,6 +374,10 @@ func _physics_process(delta):
 		camera.look_at(current_look_at, Vector3.UP)
 		local_x = 0.0
 		local_z = base_forward
+		blade_target.translation = Vector3(0.0, -1.2, base_forward)
+		puck.global_transform.origin = blade_target.global_transform.origin
+		stick_y_velocity = 0.0
+		prev_stick_raw_y = -0.5
 		last_shot_type = "NONE"
 		last_shot_force = 0.0
 		last_shot_dir = Vector3.ZERO
@@ -377,7 +401,10 @@ func _physics_process(delta):
 		"  did_released_frame:  %s\n" +
 		"  puck_vel.length():   %.2f\n" +
 		"  shot_dir:            (%.2f, %.2f, %.2f)\n" +
-		"  distance to target:  %.5f\n\n" +
+		"  distance to target:  %.5f\n" +
+		"  using_neutral_stick: %s\n" +
+		"  control_point_local: (%.2f, %.2f)\n" +
+		"  blade_target_global: (%.2f, %.2f, %.2f)\n\n" +
 		"Controller Raw Input (Device 0):\n" +
 		"  joy_rx (axis 2):     %.2f\n" +
 		"  joy_ry (axis 3):     %.2f\n\n" +
@@ -403,6 +430,10 @@ func _physics_process(delta):
 		puck_vel.length(),
 		last_shot_dir.x, last_shot_dir.y, last_shot_dir.z,
 		dist_to_target,
+		str(using_neutral_stick),
+		local_x,
+		local_z,
+		blade_target.global_transform.origin.x, blade_target.global_transform.origin.y, blade_target.global_transform.origin.z,
 		joy_rx,
 		joy_ry,
 		stick_raw_y,
