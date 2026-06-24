@@ -55,6 +55,12 @@ var current_puck_state = PuckState.FREE
 var puck_vel := Vector3.ZERO
 var _use_mouse := false
 
+export var capture_radius := 0.65
+export var shot_recapture_delay := 0.25
+export var puck_ice_height := 0.125
+
+var recapture_timer := 0.0
+
 # Refactored ShotState Enum
 enum ShotState { CARRY, SLAP_LOADING, RELEASED, CANCELLED }
 var current_shot_state = ShotState.CARRY
@@ -110,6 +116,7 @@ func _input(event):
 	pass
 
 # Shot release helper function
+# Shot release helper function
 func _release_shot(force: float, shot_type: String):
 	# Calculate shot direction: vector from player body center to current puck position
 	var shot_dir = puck.global_transform.origin - player.global_transform.origin
@@ -122,8 +129,8 @@ func _release_shot(force: float, shot_type: String):
 	else:
 		shot_dir = shot_dir.normalized()
 		
-	# Move puck slightly forward from blade before applying velocity to clear collision/visual bounds
-	puck.global_transform.origin += shot_dir * 0.25
+	# Move released puck beyond capture_radius
+	puck.global_transform.origin += shot_dir * (capture_radius + 0.15)
 	
 	puck_vel = shot_dir * force
 	current_puck_state = PuckState.FREE
@@ -136,6 +143,7 @@ func _release_shot(force: float, shot_type: String):
 	slap_charge = 0.0
 	slap_charge_percent = 0.0
 	shot_cooldown_timer = shot_cooldown
+	recapture_timer = shot_recapture_delay
 	did_release_shot_this_frame = true
 
 func _physics_process(delta):
@@ -144,11 +152,15 @@ func _physics_process(delta):
 	# Hide/show stick visual based on configuration
 	stick.visible = show_stick_visual
 	
-	# Cooldown timer tracking
+	# Cooldown / recapture timer tracking
 	if shot_cooldown_timer > 0.0:
 		shot_cooldown_timer -= delta
-	
-	# 1. Player Skating Movement (WASD / Left Stick - Camera Relative)
+	if recapture_timer > 0.0:
+		recapture_timer -= delta
+	if cancel_timer > 0.0:
+		cancel_timer -= delta
+		
+	# 1. Read input & Player Skating Movement (WASD / Left Stick - Camera Relative)
 	var input_x = Input.get_action_strength("move_right") - Input.get_action_strength("move_left")
 	var input_z = Input.get_action_strength("move_up") - Input.get_action_strength("move_down") # W = +1 (forward), S = -1 (backward)
 	
@@ -180,35 +192,32 @@ func _physics_process(delta):
 	var body_angle = body_mesh.rotation.y
 	var body_face_dir = Vector3(sin(body_angle), 0, cos(body_angle)).normalized()
 	
-	# 2. Stick Pivot & Extension (Right Stick / Mouse mapping to 2D local space)
+	# Read stick input from actions (InputMap)
 	var stick_input = Vector2(
 		Input.get_action_strength("stick_right") - Input.get_action_strength("stick_left"),
 		Input.get_action_strength("stick_down") - Input.get_action_strength("stick_up") # Down = positive, Up = negative
 	)
 	
-	# Raw right-stick axis debug directly from controller (device 0)
+	# Debug-only raw joystick axis values directly from controller (device 0)
 	var joy_rx = Input.get_joy_axis(0, JOY_AXIS_2)
 	var joy_ry = Input.get_joy_axis(0, JOY_AXIS_3)
 	
-	# Determine stick raw values: prioritize raw joystick input, fall back to action strengths / mouse
-	var stick_raw_x = joy_rx
-	var stick_raw_y = joy_ry
+	# Use InputMap action strengths as gameplay input
+	var stick_raw_x = stick_input.x
+	var stick_raw_y = stick_input.y
 	
-	if abs(joy_rx) < 0.05 and abs(joy_ry) < 0.05:
-		stick_raw_x = stick_input.x
-		stick_raw_y = stick_input.y
-		
-	var stick_mag = Vector2(stick_raw_x, stick_raw_y).length()
+	var stick_mag = stick_input.length()
 	
+	# 2. Update Control Point (BladeTarget & Stick Pivoting)
 	var using_neutral_stick := false
 	if stick_mag > 0.15:
 		# Active stick input
 		pass
 	else:
-		# Neutral stick state: smoothly return stick_raw_x to 0, stick_raw_y to neutral Y (-0.5)
+		# Neutral stick state: smoothly return stick_raw_x and stick_raw_y to 0
 		using_neutral_stick = true
 		stick_raw_x = lerp(stick_raw_x, 0.0, 15.0 * delta)
-		stick_raw_y = lerp(stick_raw_y, -0.5, 15.0 * delta)
+		stick_raw_y = lerp(stick_raw_y, 0.0, 15.0 * delta)
 		stick_mag = Vector2(stick_raw_x, stick_raw_y).length()
 		
 	# Invert X axis if enabled
@@ -246,37 +255,61 @@ func _physics_process(delta):
 	stick.scale = Vector3(1.0, 1.0, 1.0)
 	stick.translation = Vector3(0.0, -1.2, dist - 1.25)
 	
-	# 3. Arcade Shooting State Machine (Re-enabled with Button Fallbacks)
-	if current_puck_state == PuckState.POSSESSED:
-		# Temporary button shot test: Press A (Cross) or Space = guaranteed wrist shot
-		var button_shot_pressed = false
-		if Input.is_action_just_pressed("shoot") or Input.is_action_just_pressed("pass"):
-			button_shot_pressed = true
-		if Input.is_key_pressed(KEY_SPACE) or Input.is_joy_button_pressed(0, JOY_BUTTON_0):
-			if shot_cooldown_timer <= 0.0:
-				button_shot_pressed = true
-				
-		if button_shot_pressed:
-			_release_shot(wrist_shot_force, "BUTTON_WRIST")
-		elif current_shot_state != ShotState.RELEASED:
-			match current_shot_state:
-				ShotState.CARRY:
-					if shot_cooldown_timer <= 0.0:
-						# Arcade Wrist Shot: raw_y pushed forward past threshold (no flick velocity requirement)
-						if stick_raw_y < wrist_release_threshold:
-							_release_shot(wrist_shot_force, "WRIST")
-						# Arcade Slapshot: raw_y pulled back past threshold
-						elif stick_raw_y > pull_load_threshold:
-							current_shot_state = ShotState.SLAP_LOADING
-							slap_charge = 0.0
-							slap_charge_percent = 0.0
-							cancel_timer = 0.0
-							
-				ShotState.SLAP_LOADING:
+	# 3. Update Capture State
+	var dist_to_target = puck.global_transform.origin.distance_to(blade_target.global_transform.origin)
+	if current_puck_state == PuckState.FREE:
+		# Capture puck if close to BladeTarget and recapture delay has expired
+		if dist_to_target < capture_radius and recapture_timer <= 0.0:
+			current_puck_state = PuckState.POSSESSED
+			current_shot_state = ShotState.CARRY
+			# Capture reset: force control point to neutral directly in front of skater
+			local_x = 0.0
+			local_z = base_forward
+			blade_target.translation = Vector3(0.0, -1.2, base_forward)
+			puck.global_transform.origin = blade_target.global_transform.origin
+			puck.global_transform.origin.y = puck_ice_height
+			slap_charge = 0.0
+			slap_charge_percent = 0.0
+			stick_y_velocity = 0.0
+			prev_stick_raw_y = 0.0
+			dist_to_target = 0.0
+			
+	elif current_puck_state == PuckState.POSSESSED:
+		# Lock puck directly to the local target in body's space (no physics, copy BladeTarget X/Z, force Y to puck_ice_height)
+		puck.global_transform.origin.x = blade_target.global_transform.origin.x
+		puck.global_transform.origin.z = blade_target.global_transform.origin.z
+		puck.global_transform.origin.y = puck_ice_height
+		puck_vel = Vector3.ZERO
+		dist_to_target = puck.global_transform.origin.distance_to(blade_target.global_transform.origin)
+		
+	# 4. Process Shot State
+	# Button wrist shot fallback (Only Input.is_action_just_pressed("shoot") may trigger it)
+	var button_shot_pressed = false
+	if Input.is_action_just_pressed("shoot"):
+		button_shot_pressed = true
+		
+	if button_shot_pressed and current_puck_state == PuckState.POSSESSED:
+		_release_shot(wrist_shot_force, "BUTTON_WRIST")
+	else:
+		match current_shot_state:
+			ShotState.CARRY:
+				if current_puck_state == PuckState.POSSESSED and shot_cooldown_timer <= 0.0:
+					# Arcade Wrist Shot: raw_y pushed forward past threshold
+					if stick_raw_y < wrist_release_threshold:
+						_release_shot(wrist_shot_force, "WRIST")
+					# Arcade Slapshot: raw_y pulled back past threshold
+					elif stick_raw_y > pull_load_threshold:
+						current_shot_state = ShotState.SLAP_LOADING
+						slap_charge = 0.0
+						slap_charge_percent = 0.0
+						cancel_timer = 0.0
+						
+			ShotState.SLAP_LOADING:
+				if current_puck_state == PuckState.POSSESSED:
 					slap_charge = min(slap_charge + delta, max_slap_charge_time)
 					slap_charge_percent = (slap_charge / max_slap_charge_time) * 100.0
 					
-					# Arcade Slapshot Release: raw_y pushed forward past release threshold (no flick velocity requirement)
+					# Arcade Slapshot Release: raw_y pushed forward past release threshold
 					if stick_raw_y < flick_release_threshold:
 						var force = lerp(min_slap_force, max_slap_force, slap_charge / max_slap_charge_time)
 						_release_shot(force, "SLAPSHOT")
@@ -296,16 +329,16 @@ func _physics_process(delta):
 						current_shot_state = ShotState.CANCELLED
 						slap_charge = 0.0
 						slap_charge_percent = 0.0
-						
-				ShotState.RELEASED, ShotState.CANCELLED:
-					# Reset state back to carry once joystick settles in neutral
-					if stick_mag < 0.15:
-						current_shot_state = ShotState.CARRY
-	else:
-		current_shot_state = ShotState.CARRY
-		slap_charge = 0.0
-		slap_charge_percent = 0.0
-		
+				else:
+					current_shot_state = ShotState.CANCELLED
+					slap_charge = 0.0
+					slap_charge_percent = 0.0
+					
+			ShotState.RELEASED, ShotState.CANCELLED:
+				# RELEASED returns to CARRY only after cooldown and neutral input
+				if shot_cooldown_timer <= 0.0 and stick_mag < 0.15:
+					current_shot_state = ShotState.CARRY
+					
 	# Update front marker feedback color (White -> Orange-Red)
 	if current_shot_state == ShotState.SLAP_LOADING:
 		var load_factor = slap_charge / max_slap_charge_time
@@ -315,9 +348,7 @@ func _physics_process(delta):
 		if front_marker_material:
 			front_marker_material.albedo_color = Color(1.0, 1.0, 1.0)
 			
-	# 4. Puck Physics & Possession Lock
-	var dist_to_target = puck.global_transform.origin.distance_to(blade_target.global_transform.origin)
-	
+	# 5. Process Free Puck Physics
 	if current_puck_state == PuckState.FREE:
 		puck_vel = puck_vel.move_toward(Vector3.ZERO, puck_friction * delta)
 		puck.translation += puck_vel * delta
@@ -330,27 +361,11 @@ func _physics_process(delta):
 			puck.translation.z = sign(puck.translation.z) * 19.0
 			puck_vel.z = -puck_vel.z * 0.7
 			
-		# Capture puck if close to BladeTarget
-		if dist_to_target < 1.8:
-			current_puck_state = PuckState.POSSESSED
-			current_shot_state = ShotState.CARRY
-			# Capture reset: force control point to neutral directly in front of skater
-			local_x = 0.0
-			local_z = base_forward
-			blade_target.translation = Vector3(0.0, -1.2, base_forward)
-			puck.global_transform.origin = blade_target.global_transform.origin
-			slap_charge = 0.0
-			slap_charge_percent = 0.0
-			stick_y_velocity = 0.0
-			prev_stick_raw_y = -0.5
-			
-	elif current_puck_state == PuckState.POSSESSED:
-		# Lock puck directly to the local target in body's space (no physics, no camera drift)
-		puck.global_transform.origin = blade_target.global_transform.origin
-		puck_vel = Vector3.ZERO
-		dist_to_target = puck.global_transform.origin.distance_to(blade_target.global_transform.origin)
+		# Ensure puck always sits at puck_ice_height even when FREE
+		puck.translation.y = puck_ice_height
 		
-	# 5. Camera Smooth Tracking (NHL broadcast-follow camera with damped yaw)
+	# 6. Update Camera/HUD
+	# Camera Smooth Tracking (NHL broadcast-follow camera with damped yaw)
 	cam_yaw = lerp_angle(cam_yaw, body_angle, camera_yaw_smooth * delta)
 	
 	var target_cam_offset = Vector3(-sin(cam_yaw), 0, -cos(cam_yaw)) * camera_distance
@@ -360,10 +375,10 @@ func _physics_process(delta):
 	current_look_at = current_look_at.linear_interpolate(player.translation, camera_smooth * delta)
 	camera.look_at(current_look_at, Vector3.UP)
 	
-	# 6. Reset Position
+	# Reset Position Action
 	if Input.is_action_just_pressed("reset"):
 		player.translation = Vector3.ZERO
-		puck.translation = Vector3(0, 0.125, 6)
+		puck.translation = Vector3(0, puck_ice_height, 6)
 		puck_vel = Vector3.ZERO
 		current_puck_state = PuckState.FREE
 		current_shot_state = ShotState.CARRY
@@ -375,14 +390,14 @@ func _physics_process(delta):
 		local_x = 0.0
 		local_z = base_forward
 		blade_target.translation = Vector3(0.0, -1.2, base_forward)
-		puck.global_transform.origin = blade_target.global_transform.origin
 		stick_y_velocity = 0.0
-		prev_stick_raw_y = -0.5
+		prev_stick_raw_y = 0.0
+		recapture_timer = shot_recapture_delay # Start recapture delay after reset
 		last_shot_type = "NONE"
 		last_shot_force = 0.0
 		last_shot_dir = Vector3.ZERO
 		
-	# 7. Update HUD display
+	# Update HUD display
 	var puck_state_str = "FREE" if current_puck_state == PuckState.FREE else "POSSESSED"
 	var load_pct = (slap_charge / max_slap_charge_time) * 100.0 if current_shot_state == ShotState.SLAP_LOADING else 0.0
 	var state_name := "CARRY"
