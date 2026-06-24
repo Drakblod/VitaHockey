@@ -16,14 +16,14 @@ export var invert_stick_sweep_x := true # Toggle to correct left-right sweep dir
 
 # Puck Sweep reach configurations
 export var side_reach := 1.8
-export var base_forward := 1.8
-export var forward_reach := 0.7
+export var base_forward := 2.4
+export var forward_reach := 0.8
 
 # Clamping boundaries for puck target in front of player
 export var min_local_x := -1.8
 export var max_local_x := 1.8
-export var min_local_z := 1.2
-export var max_local_z := 2.6
+export var min_local_z := 1.6
+export var max_local_z := 3.2
 
 # Tuning configurations for shooting force/time
 export var min_slap_force := 20.0
