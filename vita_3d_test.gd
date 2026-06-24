@@ -1,130 +1,73 @@
 extends Spatial
 
-export var player_speed := 16.0
-export var puck_friction := 1.8
-export var shot_force := 30.0
-
-onready var player = $Player
-onready var pivot = $Player/Pivot
-onready var puck = $Puck
 onready var camera = $Camera
+onready var cube = $TestCube
+onready var imm_geom = $ImmediateGeometry
 onready var debug_label = $UI/DebugLabel
 
-var puck_vel := Vector3.ZERO
-var _use_mouse := true
-
 func _ready():
-	# Ensure mouse is set up
-	if OS.get_name() in ["PSP2", "Vita"]:
-		_use_mouse = false
-		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
-	
-	# Initial camera alignment looking directly at origin
+	# Explicitly make camera current
+	camera.make_current()
 	camera.look_at(Vector3.ZERO, Vector3.UP)
-
-func _input(event):
-	if event is InputEventMouseMotion:
-		_use_mouse = true
-	elif event is InputEventJoypadMotion:
-		if event.device == 0 and event.axis in [2, 3] and abs(event.axis_value) > 0.2:
-			_use_mouse = false
-
-func get_mesh_count(node: Node) -> int:
-	var count = 0
-	if node is MeshInstance:
-		count += 1
-	for child in node.get_children():
-		count += get_mesh_count(child)
-	return count
+	
+	# Draw a large ImmediateGeometry green triangle at the XZ plane
+	var mat = SpatialMaterial.new()
+	mat.flags_unshaded = true
+	mat.vertex_color_use_as_albedo = true
+	imm_geom.set_material_override(mat)
+	
+	imm_geom.clear()
+	imm_geom.begin(Mesh.PRIMITIVE_TRIANGLES)
+	imm_geom.set_color(Color(0, 1, 0, 1)) # Green
+	imm_geom.add_vertex(Vector3(-10, 0, -10))
+	imm_geom.add_vertex(Vector3(10, 0, -10))
+	imm_geom.add_vertex(Vector3(0, 0, 10))
+	imm_geom.end()
 
 func _physics_process(delta):
-	# 1. Player Movement (WASD / Left Stick)
-	var move_dir = Vector3(
-		Input.get_action_strength("move_right") - Input.get_action_strength("move_left"),
-		0,
-		Input.get_action_strength("move_down") - Input.get_action_strength("move_up")
-	)
+	# Keep camera centered on the origin
+	camera.look_at(Vector3.ZERO, Vector3.UP)
 	
-	if move_dir.length() > 0.1:
-		player.translation += move_dir.normalized() * player_speed * delta
-		
-	# Clamp player to rink boundaries (rink size is 40x20)
-	player.translation.x = clamp(player.translation.x, -19.0, 19.0)
-	player.translation.z = clamp(player.translation.z, -9.0, 9.0)
+	# Rotate the test cube slightly to verify movement
+	cube.rotate_y(0.5 * delta)
+	cube.rotate_x(0.2 * delta)
 	
-	# 2. Stick Rotation (Right Stick / Mouse)
-	var stick_input = Vector2(
-		Input.get_action_strength("stick_right") - Input.get_action_strength("stick_left"),
-		Input.get_action_strength("stick_down") - Input.get_action_strength("stick_up")
-	)
-	
-	if stick_input.length() > 0.2:
-		var angle = atan2(-stick_input.y, stick_input.x)
-		pivot.rotation.y = angle
-	elif _use_mouse:
-		var player_screen_pos = camera.unproject_position(player.global_transform.origin)
-		var mouse_screen_pos = get_viewport().get_mouse_position()
-		var screen_dir = mouse_screen_pos - player_screen_pos
-		if screen_dir.length() > 5.0:
-			var angle = atan2(-screen_dir.y, screen_dir.x)
-			pivot.rotation.y = angle
-			
-	# 3. Puck Physics
-	puck_vel = puck_vel.move_toward(Vector3.ZERO, puck_friction * delta)
-	puck.translation += puck_vel * delta
-	
-	# Puck bounce off walls (rink size is 40x20)
-	if abs(puck.translation.x) > 19.0:
-		puck.translation.x = sign(puck.translation.x) * 19.0
-		puck_vel.x = -puck_vel.x * 0.7
-	if abs(puck.translation.z) > 9.0:
-		puck.translation.z = sign(puck.translation.z) * 9.0
-		puck_vel.z = -puck_vel.z * 0.7
-		
-	# 4. Shooting (Detect if puck is near stick blade)
-	var stick_tip = player.global_transform.origin + Vector3.RIGHT.rotated(Vector3.UP, pivot.rotation.y) * 2.0
-	var dist_to_puck = stick_tip.distance_to(puck.global_transform.origin)
-	
-	if Input.is_action_just_pressed("shoot") or Input.is_mouse_button_pressed(BUTTON_LEFT):
-		if dist_to_puck < 2.0:
-			var shoot_dir = Vector3.RIGHT.rotated(Vector3.UP, pivot.rotation.y)
-			puck_vel = shoot_dir * shot_force
-			
-	# 5. Camera Tracking (Centering camera on the player and aiming at them)
-	camera.translation.x = lerp(camera.translation.x, player.translation.x, 3.0 * delta)
-	camera.translation.z = lerp(camera.translation.z, player.translation.z + 24.0, 3.0 * delta)
-	camera.translation.y = 18.0
-	camera.look_at(player.translation, Vector3.UP)
-	
-	# 6. Reset Position
-	if Input.is_action_just_pressed("reset"):
-		player.translation = Vector3.ZERO
-		puck.translation = Vector3(0, 0.1, 5)
-		puck_vel = Vector3.ZERO
-		
-	# 7. Update Debug Overlay
 	var fps = Engine.get_frames_per_second()
-	var mesh_count = get_mesh_count(get_tree().root)
+	
+	# Diagnostics info
+	var root_class = self.get_class()
+	var cam_current = camera.current
+	var cam_pos = camera.global_transform.origin
+	var cube_pos = cube.global_transform.origin
+	var view_size = get_viewport().size
+	
+	# ProjectSettings details
+	var driver = ProjectSettings.get_setting("rendering/quality/driver/driver_name")
+	var fb_alloc = ProjectSettings.get_setting("rendering/quality/intended_usage/framebuffer_allocation")
+	var fb_alloc_mobile = ProjectSettings.get_setting("rendering/quality/intended_usage/framebuffer_allocation.mobile")
+	
 	debug_label.text = (
-		"3D Feasibility Test (Debug)\n" +
+		"3D Feasibility Test (Depth Calibration)\n" +
 		"FPS: %d\n" +
-		"Camera Pos: (%.1f, %.1f, %.1f)\n" +
+		"Root Node Type: %s\n" +
 		"Camera Current: %s\n" +
-		"Player Pos: (%.1f, %.1f, %.1f)\n" +
-		"Puck Pos: (%.1f, %.1f, %.1f)\n" +
-		"Meshes Found: %d\n" +
-		"Dist to Puck: %.1f\n" +
-		"Controls:\n" +
-		"  Move: WASD / Left Stick\n" +
-		"  Stick: Mouse / Right Stick\n" +
-		"  Shoot: Left Click / Space / Circle\n" +
-		"  Reset: R / Start"
+		"Camera Pos: (%.1f, %.1f, %.1f)\n" +
+		"Viewport Size: %d x %d\n\n" +
+		"Render Configuration:\n" +
+		"  Driver: %s\n" +
+		"  Framebuffer Alloc: %s\n" +
+		"  Framebuffer Alloc (Mobile): %s\n\n" +
+		"Cube Pos: (%.1f, %.1f, %.1f)\n" +
+		"Cube Visible: %s"
 	) % [
-		fps, 
-		camera.translation.x, camera.translation.y, camera.translation.z,
-		str(camera.current),
-		player.translation.x, player.translation.y, player.translation.z,
-		puck.translation.x, puck.translation.y, puck.translation.z,
-		mesh_count,
-		dist_to_puck
+		fps,
+		root_class,
+		str(cam_current),
+		cam_pos.x, cam_pos.y, cam_pos.z,
+		view_size.x, view_size.y,
+		str(driver),
+		str(fb_alloc),
+		str(fb_alloc_mobile),
+		cube_pos.x, cube_pos.y, cube_pos.z,
+		str(cube.visible)
 	]
